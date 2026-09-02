@@ -1,4 +1,4 @@
-<article class="log-drawer log-output" aria-live="polite">
+<article id="log-{{.RunID}}" class="log-drawer log-output" aria-live="polite">
   <div class="card-header">
     <h3>Run log <span class="mono">{{.RunID}}</span></h3>
     {{if eq .State "retained"}}<span class="signal ok">retained</span>{{else if eq .State "evicted"}}<span class="signal unknown">not retained</span>{{else if eq .State "unknown"}}<span class="signal error">unknown run</span>{{else}}<span class="signal error">error</span>{{end}}
