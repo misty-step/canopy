@@ -1,0 +1,20 @@
+{
+  "listen": "127.0.0.1:8080",
+  "fleet_interval_seconds": 10,
+  "selected_interval_seconds": 2,
+  "instances": [
+    {
+      "id": "local",
+      "label": "Local Forest",
+      "root": "/absolute/path/to/iron-forest",
+      "forest": "/absolute/path/to/iron-forest/forest"
+    },
+    {
+      "id": "remote",
+      "label": "Remote Forest",
+      "host": "operator@example.org",
+      "root": "/srv/iron-forest",
+      "forest": "/usr/local/bin/forest"
+    }
+  ]
+}

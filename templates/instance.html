@@ -1,0 +1,121 @@
+<section class="instance-panel" id="instance-panel"
+  {{if .ID}}hx-get="/fragments/instance?instance={{.ID}}" hx-trigger="every 2s" hx-target="#instance-panel" hx-swap="outerHTML"{{end}}>
+  {{if .ID}}
+    <header class="identity">
+      <div>
+        <p class="eyebrow">Selected instance</p>
+        <h2>{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}</h2>
+        <p class="identity-meta"><span class="mono">{{.ID}}</span>{{if .Host}} · {{.Host}}{{end}}{{if .Repo}} · {{.Repo}}{{end}}</p>
+      </div>
+      <span class="status-badge {{.Freshness}}">{{.Freshness}}</span>
+      {{if .LastObserved}}<span class="identity-meta">last observed {{.LastObserved}}</span>{{end}}
+    </header>
+
+    {{if .Errors}}
+      <section class="card card-wide" aria-labelledby="instance-errors">
+        <div class="card-header"><h2 id="instance-errors">Collection warnings</h2><span class="signal error">attention</span></div>
+        <ul class="error-list">
+          {{range .Errors}}<li>{{.}}</li>{{end}}
+        </ul>
+      </section>
+    {{end}}
+
+    {{if eq .Freshness "unknown"}}
+      <section class="card card-wide" aria-labelledby="waiting-title">
+        <div class="card-header"><h2 id="waiting-title">Waiting for first observation</h2><span class="signal unknown">unknown</span></div>
+        <p class="muted">No successful snapshot is available yet. Canopy will keep trying without treating this instance as healthy.</p>
+      </section>
+    {{else}}
+      <div class="card-grid">
+        <section class="card card-third" aria-labelledby="overview-title">
+          <div class="card-header"><h2 id="overview-title">Overview</h2><span class="signal {{.Freshness}}">{{.Freshness}}</span></div>
+          <dl class="metric-row">
+            <div class="metric"><dt>Kernel</dt><dd>{{if .KernelKnown}}{{if .KernelRunning}}running{{else}}stopped{{end}}{{else}}unknown{{end}}</dd></div>
+            <div class="metric"><dt>Live runs</dt><dd>{{.ActiveRuns}}</dd></div>
+            <div class="metric"><dt>Revision</dt><dd class="mono">{{.Version}}</dd></div>
+          </dl>
+        </section>
+        <section class="card card-third" aria-labelledby="audit-title">
+          <div class="card-header"><h2 id="audit-title">Audit trust</h2><span class="signal {{.Audit.TrustClass}}">{{.Audit.Trust}}</span></div>
+          <dl class="metric-row">
+            <div class="metric"><dt>Result</dt><dd>{{if .Audit.LastResult}}{{.Audit.LastResult}}{{else}}unknown{{end}}</dd></div>
+            <div class="metric"><dt>Audited</dt><dd class="mono">{{if .Audit.AuditedMaster}}{{.Audit.AuditedMaster}}{{else}}unknown{{end}}</dd></div>
+          </dl>
+          {{if .Audit.Violations}}<ul class="error-list">{{range .Audit.Violations}}<li>{{.}}</li>{{end}}</ul>{{end}}
+        </section>
+        <section class="card card-third" aria-labelledby="config-summary-title">
+          <div class="card-header"><h2 id="config-summary-title">Configuration</h2><span class="muted mono">{{.Config.Primary}}</span></div>
+          <p class="muted">{{if .Config.PrimarySource}}primary from {{.Config.PrimarySource}}{{else}}primary declaration{{end}}</p>
+          {{if .Config.Scope.Label}}<p><strong>Scope:</strong> {{.Config.Scope.Label}}</p>{{end}}
+          {{if .Config.Scope.BranchPrefix}}<p><strong>Branch:</strong> <span class="mono">{{.Config.Scope.BranchPrefix}}</span></p>{{end}}
+          {{if .Config.Scope.Subjects}}<p><strong>Subjects:</strong> {{len .Config.Scope.Subjects}}</p>{{end}}
+        </section>
+
+        <section class="card card-wide" aria-labelledby="live-title">
+          <div class="card-header"><h2 id="live-title">Live work</h2><span class="muted">{{.ActiveRuns}} active</span></div>
+          {{if .LiveRuns}}
+            <div class="data-table-wrap"><table class="data-table"><thead><tr><th>Run</th><th>Agent</th><th>Started</th><th>Elapsed</th><th>Logs</th></tr></thead><tbody>
+              {{range .LiveRuns}}
+                <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td class="mono">{{.StartedAt}}</td><td>{{.Elapsed}}</td><td><a class="log-link" href="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-get="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-target="next .log-output" hx-swap="outerHTML">open log</a><div class="log-output muted">on demand</div></td></tr>
+              {{end}}
+            </tbody></table></div>
+          {{else}}<p class="empty">No live runs reported.</p>{{end}}
+        </section>
+
+        <section class="card card-half" aria-labelledby="trigger-title">
+          <div class="card-header"><h2 id="trigger-title">Trigger matrix</h2><span class="muted">poll vs run</span></div>
+          {{if .Triggers}}
+            <div class="data-table-wrap">
+            <table class="data-table"><thead><tr><th>Agent</th><th>Poll</th><th>Run</th><th>Errors</th></tr></thead><tbody>
+              {{range .Triggers}}
+                <tr><td>{{if .Name}}{{.Name}}{{else}}legacy / unnamed{{end}}</td><td><span class="signal {{.PollStatus}}">{{.PollStatus}}</span>{{if .PollError}}<br><span class="muted">{{.PollError}}</span>{{end}}</td><td><span class="signal {{.RunStatus}}">{{.RunStatus}}</span>{{if .RunError}}<br><span class="muted">{{.RunError}}</span>{{end}}</td><td>{{.ConsecutiveErrors}}</td></tr>
+              {{end}}
+            </tbody></table>
+            </div>
+          {{else}}<p class="empty">No trigger state reported.</p>{{end}}
+        </section>
+
+        <section class="card card-half" aria-labelledby="recent-title">
+          <div class="card-header"><h2 id="recent-title">Recent runs</h2><span class="muted">oldest first</span></div>
+          {{if .RecentRuns}}
+            <div class="data-table-wrap">
+            <table class="data-table"><thead><tr><th>Run</th><th>Agent</th><th>Outcome</th><th>Duration</th><th>Logs</th></tr></thead><tbody>
+              {{range .RecentRuns}}
+                <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td><span class="signal {{if eq .Status "passed"}}ok{{else}}error{{end}}">{{.ExitLabel}}</span>{{if .Error}}<br><span class="muted">{{.Error}}</span>{{end}}</td><td>{{.Duration}}</td><td><a class="log-link" href="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-get="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-target="next .log-output" hx-swap="outerHTML">open</a><div class="log-output muted">on demand</div></td></tr>
+              {{end}}
+            </tbody></table>
+            </div>
+          {{else}}<p class="empty">No recent runs reported.</p>{{end}}
+        </section>
+
+        <section class="card card-wide" aria-labelledby="ledger-title">
+          <div class="card-header"><h2 id="ledger-title">Ledger agents</h2><span class="muted">historical aggregate</span></div>
+          {{if .Agents}}
+            <div class="data-table-wrap">
+            <table class="data-table"><thead><tr><th>Agent</th><th class="number">Runs</th><th class="number">Pass rate</th><th class="number">P50</th><th class="number">P95</th><th class="number">Tokens in</th><th class="number">Tokens out</th></tr></thead><tbody>
+              {{range .Agents}}
+                <tr><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td class="number">{{.Runs}}</td><td class="number">{{.PassRateLabel}}</td><td class="number">{{.DurationP50Label}}</td><td class="number">{{.DurationP95Label}}</td><td class="number">{{.TokensIn}}</td><td class="number">{{.TokensOut}}</td></tr>
+              {{end}}
+            </tbody></table>
+            </div>
+          {{else}}<p class="empty">No Ledger agents reported yet.</p>{{end}}
+        </section>
+
+        <section class="card card-wide" aria-labelledby="declarations-title">
+          <div class="card-header"><h2 id="declarations-title">Declarations</h2><span class="muted">configuration snapshot</span></div>
+          {{if .Config.Declarations}}
+            <div class="data-table-wrap">
+            <table class="data-table"><thead><tr><th>Name</th><th>Model</th><th>Model source</th><th>Tools</th><th>Watchdog</th></tr></thead><tbody>
+              {{range .Config.Declarations}}
+                <tr><td>{{if .Name}}{{.Name}}{{else}}legacy / unnamed{{end}}</td><td class="mono">{{.Model}}</td><td>{{.ModelSource}}</td><td>{{range $index, $tool := .Tools}}{{if $index}}, {{end}}{{$tool}}{{end}}</td><td>{{if .MaxDuration}}{{.MaxDuration}}s{{else}}unbounded{{end}}</td></tr>
+              {{end}}
+            </tbody></table>
+            </div>
+          {{else}}<p class="empty">No declarations reported.</p>{{end}}
+        </section>
+      </div>
+    {{end}}
+  {{else}}
+    <section class="card card-wide" aria-labelledby="empty-title"><div class="card-header"><h2 id="empty-title">No instance selected</h2><span class="signal unknown">unknown</span></div><p class="empty">Add an instance to the inventory to begin observing it.</p></section>
+  {{end}}
+</section>

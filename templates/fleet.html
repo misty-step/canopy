@@ -1,0 +1,34 @@
+<aside class="fleet-rail" id="fleet"
+  hx-get="/fragments/fleet"
+  hx-trigger="every 10s, canopy-selection from:body"
+  hx-target="#fleet"
+  hx-swap="outerHTML">
+  <a class="brand" href="/" aria-label="Canopy home">
+    <span class="brand-mark" aria-hidden="true">⌁</span>
+    <span>
+      <span class="brand-name">Canopy</span>
+      <span class="brand-caption">Iron Forest view</span>
+    </span>
+  </a>
+  <p class="rail-heading">Fleet</p>
+  {{if .Instances}}
+    <nav aria-label="Forest instances">
+      <ul class="instance-list">
+        {{range .Instances}}
+          <li>
+            <a class="instance-link" href="/?instance={{.ID}}"
+              hx-get="/fragments/instance?instance={{.ID}}" hx-target="#instance-panel" hx-push-url="/?instance={{.ID}}"
+              aria-current="{{if .IsSelected}}true{{else}}false{{end}}">
+              <span class="state-dot {{.Freshness}}" aria-hidden="true"></span>
+              <span class="instance-name">{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}
+                <span class="instance-meta">{{.Freshness}}{{if .LastObserved}} · {{.LastObserved}}{{end}}</span>
+              </span>
+            </a>
+          </li>
+        {{end}}
+      </ul>
+    </nav>
+  {{else}}
+    <p class="rail-empty">No instances configured.</p>
+  {{end}}
+</aside>

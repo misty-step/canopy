@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canopy · Iron Forest visibility</title>
+  <link rel="stylesheet" href="/static/canopy.css">
+</head>
+<body>
+  <div class="app-shell">
+    {{template "fleet.html" .}}
+    <main class="page-content" id="main-content">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Read-only operations surface</p>
+          <h1>Canopy</h1>
+          <p class="lede">A quiet, external view of the work your Iron Forest instances are doing now and what they last proved.</p>
+        </div>
+        <p class="muted mono">forest.cli.v2</p>
+      </header>
+      {{template "instance.html" .Selected}}
+    </main>
+  </div>
+  <script src="/static/htmx.min.js" defer></script>
+</body>
+</html>
