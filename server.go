@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"regexp"
 	"time"
 )
 
@@ -131,7 +132,8 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), refreshTimeout)
 	result, collectErr := a.collector.Logs(ctx, instance, runID, false)
 	cancel()
-	view := LogView{RunID: runID, Complete: result.Complete, Retained: result.Retained, Exit: result.Exit, Text: result.Text}
+	sanitizedText := sanitizeLogText(result.Text)
+	view := LogView{RunID: runID, Complete: result.Complete, Retained: result.Retained, Exit: result.Exit, Text: sanitizedText}
 	switch {
 	case collectErr != nil && isUnknownRunError(collectErr):
 		view.State = "unknown"
@@ -176,6 +178,8 @@ func (a *App) instanceParam(r *http.Request, required bool) (string, error) {
 }
 
 func (a *App) instance(id string) (Instance, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	for _, instance := range a.inventory.Instances {
 		if instance.ID == id {
 			return instance, true
@@ -199,6 +203,20 @@ func isUnknownRunError(err error) bool {
 	var cliErr *CLIError
 	return errors.As(err, &cliErr) && cliErr != nil && cliErr.Exit == 4
 }
+var (
+	keyPattern = regexp.MustCompile(`(?i)(keys/|key[_-]?id[=:]|token[=:]|bearer\s+|api[_-]?key[=:])([a-zA-Z0-9_\-\.]{12,})`)
+	bearerPattern = regexp.MustCompile(`(?i)sk-[a-zA-Z0-9_\-]{20,}`)
+)
+
+func sanitizeLogText(text string) string {
+	if text == "" {
+		return ""
+	}
+	res := keyPattern.ReplaceAllString(text, "${1}[REDACTED]")
+	res = bearerPattern.ReplaceAllString(res, "[REDACTED]")
+	return res
+}
+
 
 func requireGet(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method == http.MethodGet {

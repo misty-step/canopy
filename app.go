@@ -28,7 +28,8 @@ type InstanceState struct {
 }
 
 type instanceWorker struct {
-	wake chan struct{}
+	wake   chan struct{}
+	cancel context.CancelFunc
 }
 
 // App owns the in-memory projection and the bounded refresh workers. The
@@ -94,8 +95,27 @@ func (a *App) Start(ctx context.Context) {
 			}
 			go a.refreshLoop(ctx, instance, worker)
 		}
+		// Start background periodic auto-discovery
+		go a.discoveryLoop(ctx)
 	})
 }
+func (a *App) discoveryLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			discovered, err := DiscoverLocalInstances(ctx)
+			if err == nil && len(discovered) > 0 {
+				a.syncDiscoveredInstances(ctx, discovered)
+			}
+		}
+	}
+}
+
 
 func (a *App) refreshLoop(ctx context.Context, instance Instance, worker *instanceWorker) {
 	// An immediate first attempt makes the first page useful without waiting
@@ -200,9 +220,75 @@ func (a *App) state(id string) (InstanceState, bool) {
 }
 
 func (a *App) instances() []Instance {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	instances := make([]Instance, len(a.inventory.Instances))
 	copy(instances, a.inventory.Instances)
 	return instances
+}
+
+func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	discMap := make(map[string]Instance, len(discovered))
+	for _, disc := range discovered {
+		discMap[disc.ID] = disc
+	}
+
+	// 1. Remove instances that no longer exist
+	newInstances := make([]Instance, 0, len(discovered))
+	for _, existing := range a.inventory.Instances {
+		if updated, exists := discMap[existing.ID]; exists {
+			// Keep existing or updated instance definition
+			newInstances = append(newInstances, updated)
+		} else {
+			// Obsolete instance: cancel and clean up worker
+			if worker, ok := a.workers[existing.ID]; ok && worker != nil && worker.cancel != nil {
+				worker.cancel()
+			}
+			delete(a.workers, existing.ID)
+			delete(a.states, existing.ID)
+		}
+	}
+
+	// 2. Add newly discovered instances
+	existingMap := make(map[string]bool, len(newInstances))
+	for _, inst := range newInstances {
+		existingMap[inst.ID] = true
+	}
+
+	var added []Instance
+	for _, disc := range discovered {
+		if !existingMap[disc.ID] {
+			existingMap[disc.ID] = true
+			newInstances = append(newInstances, disc)
+			a.states[disc.ID] = &InstanceState{}
+			worker := &instanceWorker{wake: make(chan struct{}, 1)}
+			a.workers[disc.ID] = worker
+			added = append(added, disc)
+		}
+	}
+	a.inventory.Instances = newInstances
+
+	// 3. Reconcile selection if previous selection was removed
+	if _, selectedExists := a.states[a.selected]; !selectedExists {
+		if len(a.inventory.Instances) > 0 {
+			a.selected = a.inventory.Instances[0].ID
+		} else {
+			a.selected = ""
+		}
+	}
+
+	// 4. Start workers for newly added instances with individual cancellation
+	for _, inst := range added {
+		worker := a.workers[inst.ID]
+		if worker != nil {
+			wCtx, cancel := context.WithCancel(ctx)
+			worker.cancel = cancel
+			go a.refreshLoop(wCtx, inst, worker)
+		}
+	}
 }
 
 func (a *App) inventoryCopy() Inventory {

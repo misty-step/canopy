@@ -156,10 +156,17 @@ func (c *cliCollector) Collect(ctx context.Context, instance Instance) (Snapshot
 	snapshot := Snapshot{Instance: instance, CollectedAt: time.Now().UTC()}
 	versionRaw, err := c.runJSON(ctx, instance, "version", []string{"version"})
 	if err != nil {
-		return Snapshot{}, err
-	}
-	if err := decodeCommandData(versionRaw, "version", &snapshot.Version); err != nil {
-		return Snapshot{}, err
+		var cliErr *CLIError
+		// Exit 6 is invalid argument / unknown command in forest.cli.v2
+		if errors.As(err, &cliErr) && cliErr != nil && cliErr.Exit == 6 {
+			snapshot.Version = VersionData{BuildSHA: "unsupported"}
+		} else {
+			return Snapshot{}, err
+		}
+	} else {
+		if err := decodeCommandData(versionRaw, "version", &snapshot.Version); err != nil {
+			return Snapshot{}, err
+		}
 	}
 
 	configRaw, err := c.runJSON(ctx, instance, "config show", []string{"config", "show"})

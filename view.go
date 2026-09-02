@@ -31,6 +31,9 @@ type InstanceView struct {
 	LiveRuns                                                []LiveRunViewModel
 	RecentRuns                                              []RunViewModel
 	Agents                                                  []AgentViewModel
+	HasLedger                                               bool
+	LedgerRuns                                              int
+	LedgerPassRate                                          string
 	Config                                                  ConfigViewModel
 	Errors                                                  []string
 }
@@ -229,7 +232,12 @@ func instanceView(instance Instance, state InstanceState, selected bool, now tim
 	view.LiveRuns = liveRunViews(snapshot.Status.LiveRuns)
 	view.ActiveRuns = len(view.LiveRuns)
 	view.RecentRuns = runViews(snapshot.Status.Recent)
-	view.Agents = agentViews(snapshot.Status.Ledger.Agents)
+	if snapshot.Status.Ledger != nil {
+		view.HasLedger = true
+		view.LedgerRuns = snapshot.Status.Ledger.Runs
+		view.LedgerPassRate = fmt.Sprintf("%.0f%%", snapshot.Status.Ledger.PassRate*100)
+		view.Agents = agentViews(snapshot.Status.Ledger.Agents)
+	}
 	if snapshot.Status.Kernel.RunningKnown {
 		view.KernelKnown = true
 		view.KernelRunning = snapshot.Status.Kernel.Running
@@ -364,8 +372,8 @@ func liveRunViews(runs []LiveRunData) []LiveRunViewModel {
 
 func runViews(runs []RunData) []RunViewModel {
 	views := make([]RunViewModel, 0, len(runs))
-	for _, run := range runs {
-		views = append(views, runView(run))
+	for i := len(runs) - 1; i >= 0; i-- {
+		views = append(views, runView(runs[i]))
 	}
 	return views
 }

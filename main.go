@@ -22,19 +22,52 @@ func loadTemplates() (*template.Template, error) {
 }
 
 func main() {
-	configPath := flag.String("config", "canopy.json", "path to the Canopy inventory JSON")
+	configPath := flag.String("config", "", "optional path to the Canopy inventory JSON")
 	listenOverride := flag.String("listen", "", "override the inventory listen address")
 	flag.Parse()
 
-	inventory, err := LoadInventory(*configPath)
-	if err != nil {
-		log.Fatalf("load inventory: %v", err)
+	var inventory Inventory
+	if *configPath != "" {
+		loaded, err := LoadInventory(*configPath)
+		if err != nil {
+			log.Fatalf("load inventory: %v", err)
+		}
+		inventory = loaded
+	} else {
+		// Try default canopy.json if it exists, otherwise start with zero config
+		if fi, err := os.Stat("canopy.json"); err == nil && !fi.IsDir() {
+			if loaded, err := LoadInventory("canopy.json"); err == nil {
+				inventory = loaded
+			}
+		}
 	}
+
+	// Auto-discover all local Forest instances
+	discovered, err := DiscoverLocalInstances(context.Background())
+	if err == nil && len(discovered) > 0 {
+		seen := make(map[string]bool)
+		for _, inst := range inventory.Instances {
+			seen[inst.ID] = true
+		}
+		for _, disc := range discovered {
+			if !seen[disc.ID] {
+				seen[disc.ID] = true
+				inventory.Instances = append(inventory.Instances, disc)
+			}
+		}
+	}
+
 	if *listenOverride != "" {
 		inventory.Listen = *listenOverride
 	}
 	if inventory.Listen == "" {
 		inventory.Listen = "127.0.0.1:8080"
+	}
+	if inventory.FleetIntervalSeconds <= 0 {
+		inventory.FleetIntervalSeconds = defaultFleetIntervalSeconds
+	}
+	if inventory.SelectedIntervalSeconds <= 0 {
+		inventory.SelectedIntervalSeconds = defaultSelectedIntervalSeconds
 	}
 	templates, err := loadTemplates()
 	if err != nil {

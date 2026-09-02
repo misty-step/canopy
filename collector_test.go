@@ -102,6 +102,27 @@ func TestCLICollectorReturnsCommandFailure(t *testing.T) {
 		t.Fatalf("calls=%d, want collection to stop after first failure", len(runner.calls))
 	}
 }
+func TestCLICollectorToleratesUnsupportedVersion(t *testing.T) {
+	unknownCmd := "unknown command \"version\""
+	status := StatusData{Repo: "org/repo", Kernel: KernelData{RunningKnown: true}}
+	runner := &fakeCollectorRunner{responses: map[string]CommandResult{
+		"version":          fakeEnvelope("version", 6, nil, &unknownCmd),
+		"config show":      fakeEnvelope("config show", 0, ConfigData{Repo: "org/repo"}, nil),
+		"declaration list": fakeEnvelope("declaration list", 0, struct {
+			Declarations []DeclarationData `json:"declarations"`
+		}{Declarations: []DeclarationData{}}, nil),
+		"status":           fakeEnvelope("status", 0, status, nil),
+	}}
+	collector := NewCLICollectorWithRunner(0, runner)
+	snapshot, err := collector.Collect(context.Background(), validTestInstance(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Collect failed on unsupported version: %v", err)
+	}
+	if snapshot.Version.BuildSHA != "unsupported" {
+		t.Fatalf("expected version.BuildSHA to be 'unsupported', got %q", snapshot.Version.BuildSHA)
+	}
+}
+
 
 func TestCLICollectorCollectsAllCommandsAndDeclarationsLocally(t *testing.T) {
 	status := StatusData{Repo: "org/repo", Kernel: KernelData{RunningKnown: true}}

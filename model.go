@@ -236,5 +236,5 @@ type StatusData struct {
 	Audit             AuditData     `json:"audit"`
 	Recent            []RunData     `json:"recent"`
 	LiveRuns          []LiveRunData `json:"live_runs"`
-	Ledger            LedgerData    `json:"ledger"`
+	Ledger            *LedgerData   `json:"ledger,omitempty"`
 }

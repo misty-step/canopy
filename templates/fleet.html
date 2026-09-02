@@ -20,8 +20,17 @@
               hx-get="/fragments/instance?instance={{.ID}}" hx-target="#instance-panel" hx-push-url="/?instance={{.ID}}"
               aria-current="{{if .IsSelected}}true{{else}}false{{end}}">
               <span class="state-dot {{.Freshness}}" aria-hidden="true"></span>
-              <span class="instance-name">{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}
-                <span class="instance-meta">{{.Freshness}}{{if .LastObserved}} · {{.LastObserved}}{{end}}</span>
+              <span class="instance-name">
+                <span class="instance-title-row">
+                  <span class="instance-label">{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}</span>
+                  {{if .KernelKnown}}
+                    <span class="pill-badge {{if .KernelRunning}}running{{else}}stopped{{end}}">{{if .KernelRunning}}live{{else}}stopped{{end}}</span>
+                  {{end}}
+                </span>
+                <span class="instance-meta">
+                  {{if .Repo}}{{.Repo}}{{else}}{{.Freshness}}{{end}}
+                  {{if gt .ActiveRuns 0}} · <strong class="accent-text">{{.ActiveRuns}} running</strong>{{end}}
+                </span>
               </span>
             </a>
           </li>
