@@ -96,18 +96,26 @@ declaration; it does not provide selection context.
    `powder ask <id> --question '...'`; the CLI supplies and then deletes the
    private claim.
 6. Commit the implementation and set `revision` to the full new commit SHA.
-7. Write the review-request payload for that exact `revision` to a temporary
+7. Fetch `origin` again before preparing publication and require
+   `git merge-base --is-ancestor origin/${FOREST_PRIMARY_REF#refs/heads/} HEAD`
+   to exit 0 for the final checked revision. If ancestry fails, rebase the
+   Subject commits onto the fetched primary tip, resolve conflicts without
+   dropping either side's behavior, and rerun every configured check on the
+   resulting revision before setting `revision` to its SHA. A failed rebase or
+   check stops publication. This guard reduces avoidable stale publication but
+   does not replace Kernel atomic publication or the Verifier/Gate ancestry check.
+8. Write the review-request payload for that exact `revision` to a temporary
    file outside the repository.
-8. Publish with `forest publish review-request builder "$branch" "$payload_file"`.
+9. Publish with `forest publish review-request builder "$branch" "$payload_file"`.
    Do not run `git notes` or `git push` for this Effect. A nonzero exit is a
    stop. After a failed publish of a taken Powder job, `powder release <id>` or
    `powder ask <id> --question '...'`.
-9. After `forest publish review-request` exits 0, open one GitHub PR Projection
+10. After `forest publish review-request` exits 0, open one GitHub PR Projection
    with `gh pr create --head "$branch"`. For a GitHub Issue put `Closes #<n>`
    in the body. For a Powder job name the job id and do not invent a `Closes`
    number. The PR is for humans and is not coordination authority. Do not call
    `powder done`.
-10. If implementation reveals a separate problem, file a new GitHub Issue or
+11. If implementation reveals a separate problem, file a new GitHub Issue or
     Powder job and describe the evidence. Do not expand the selected Subject
     to hide it.
 
