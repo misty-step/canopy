@@ -111,7 +111,14 @@ func scanDevelopmentRoots(out map[string]Instance) {
 		return
 	}
 
-	parent := filepath.Join(homeDir, "Development", "misty-step")
+	scanDevelopmentRoot(filepath.Join(homeDir, "Development", "misty-step"), out)
+}
+
+// scanDevelopmentRoot adds one discoverable instance per directory under
+// parent that contains both a .forest directory and an executable ./forest
+// binary. It is separated from scanDevelopmentRoots so unit tests can supply
+// a temporary directory with mocked checkouts.
+func scanDevelopmentRoot(parent string, out map[string]Instance) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
 		return
