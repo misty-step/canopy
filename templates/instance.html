@@ -1,5 +1,5 @@
 <section class="instance-panel" id="instance-panel"
-  {{if .ID}}hx-get="/fragments/instance?instance={{.ID}}" hx-trigger="every 2s" hx-target="#instance-panel" hx-swap="outerHTML"{{end}}>
+  {{if .ID}}hx-get="/fragments/instance?instance={{.ID}}" hx-trigger="every 2s [document.hidden === false]" hx-target="#instance-panel" hx-swap="outerHTML"{{end}}>
   {{if .ID}}
     <header class="identity">
       <div>

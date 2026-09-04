@@ -1,6 +1,6 @@
 <aside class="fleet-rail" id="fleet"
   hx-get="/fragments/fleet"
-  hx-trigger="every 10s, canopy-selection from:body"
+  hx-trigger="every 10s [document.hidden === false], canopy-selection from:body"
   hx-target="#fleet"
   hx-swap="outerHTML">
   <a class="brand" href="/" aria-label="Canopy home">
