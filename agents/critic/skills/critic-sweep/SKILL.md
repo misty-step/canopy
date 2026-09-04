@@ -13,16 +13,16 @@ loop or re-run on your own.
 
 ## 1. Orient
 
-Read `VISION.md`, the accepted ADRs under `docs/adr/`, and the repository
-conventions (`README.md`, `forest.yaml`, and any repository-level `AGENTS.md`
-when present). Record the product lock and the shipped roster before judging
-drift.
+Read `README.md` and `forest.yaml` for Canopy's product boundary and roster.
+Read `VISION.md` and accepted ADRs under `docs/adr/` if present; their absence
+is not a finding. Follow the supplied repository conventions before judging
+drift. Iron Forest is an external service, not the product under review.
 
 ## 2. Sweep
 
 Inspect the codebase for:
 
-- architecture drift vs `VISION.md` and accepted ADRs
+- architecture drift vs the README boundary and any accepted vision or ADRs
 - dead weight: unused exported surface, orphaned paths, stale docs that
   contradict shipped behavior
 - complecting: one component owning unrelated responsibilities
@@ -61,8 +61,8 @@ Observed: <file:line> ... Required: ... Proposed spec direction: ...' --agent "$
 
 - `<forest.yaml repo>` is the top-level `repo:` value in `forest.yaml`; never hardcode the repository name.
 - `<agent-identity>` is the filing agent (`${POWDER_AGENT:-critic}`).
-- `<instance>` is the observed deployment identity and `<observed-binary-revision>` is the running revision reported by `forest version`; use `unknown` only when no binary is present.
-- `<slug>` is a short unique id, for example `if-critic-<topic>`.
+- `<instance>` identifies the observed Canopy deployment. Record the inspected Canopy Git revision separately from any running build revision; use `unknown` when the latter is unavailable. `forest version` identifies the external Kernel, not Canopy.
+- `<slug>` is a short unique id, for example `canopy-critic-<topic>`.
 - The note must carry the concrete `file:line` evidence. No evidence, no file.
 - Never pass `--spec` to `powder create`; a spec would make the job takeable.
 - Never edit a file, run `forest publish`, `git commit`, or `git push`.

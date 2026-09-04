@@ -14,10 +14,11 @@ loop or re-run on your own.
 
 ## 1. Orient
 
-Read `VISION.md`, the accepted ADRs under `docs/adr/`, and the repository
-conventions (`README.md`, `forest.yaml`, and any repository-level `AGENTS.md`
-when present). Identify the user-visible surfaces (CLI commands, configuration,
-Gate and evidence boundaries) before looking for gaps.
+Read `README.md` and `forest.yaml` for Canopy's product boundary and roster.
+Read `VISION.md` and accepted ADRs under `docs/adr/` if present; their absence
+is not a finding. Follow the supplied repository conventions. Identify
+configuration, collection failures, freshness, HTTP fragments, and log
+presentation as the observable surfaces before looking for gaps.
 
 ## 2. Sweep
 
@@ -62,8 +63,8 @@ Surface: <file:line or command path>. Behaviors: <observable behaviors to test>.
 
 - `<forest.yaml repo>` is the top-level `repo:` value in `forest.yaml`; never hardcode the repository name.
 - `<agent-identity>` is the filing agent (`${POWDER_AGENT:-tester}`).
-- `<instance>` is the observed deployment identity and `<observed-binary-revision>` is the running revision reported by `forest version`; use `unknown` only when no binary is present.
-- `<slug>` is a short unique id, for example `if-tester-<topic>`.
+- `<instance>` identifies the observed Canopy deployment. Record the inspected Canopy Git revision separately from any running build revision; use `unknown` when the latter is unavailable. `forest version` identifies the external Kernel, not Canopy.
+- `<slug>` is a short unique id, for example `canopy-tester-<topic>`.
 - The note must name the surface, the behaviors to test, a failing-example
   sketch, and acceptance criteria.
 - Never pass `--spec` to `powder create`; a spec would make the job takeable.
