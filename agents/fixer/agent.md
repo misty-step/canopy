@@ -1,5 +1,5 @@
 ---
-model: openrouter/deepseek/deepseek-v4-pro-0813
+model: openrouter/deepseek/deepseek-v4-flash-0731
 tools: read,grep,glob,bash,edit,write
 thinking: high
 ---

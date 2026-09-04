@@ -1,5 +1,5 @@
 ---
-model: openrouter/deepseek/deepseek-v4-pro-0813
+model: openrouter/meta/muse-spark-1.3-contributor
 tools: read,grep,glob,bash,edit,write
 thinking: high
 ---
