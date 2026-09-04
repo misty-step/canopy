@@ -36,12 +36,14 @@ go build -o canopy .
 
 ## Discovery
 
-Without an inventory file, Canopy still starts and discovers local Iron Forest instances from two sources:
+Canopy runs local discovery at startup and then every 5 seconds, with or without an inventory file. Discovery finds local Iron Forest instances from two sources:
 
 - **systemd user units** named `forest@<name>.service`. Canopy reads each unit's `WorkingDirectory` and `ExecStart` and accepts the unit only when the working directory path contains a `/misty-step/` segment and the `ExecStart` binary is executable.
 - **Development checkouts** under `~/Development/misty-step`. A checkout is discovered when it contains both a `.forest` directory and an executable `./forest` binary.
 
 Each discovered instance derives a sanitized id and a title-case label from the unit or checkout name, uses the working directory as its root, and uses the resolved `forest` binary as its executable. Instances are sorted by id.
+
+Each successful discovery scan reconciles the working inventory. When discovery returns at least one instance, that result becomes the working set: a discovered id replaces any previous definition with the discovered one, and a previously known id that is absent from the result is removed.
 
 ## Configuration precedence
 
@@ -49,9 +51,9 @@ Canopy resolves configuration in this order:
 
 1. `-config <path>` — load exactly that inventory file. A missing or invalid file is a fatal startup error.
 2. `./canopy.json` — loaded when `-config` is not set and the file exists. A present but invalid default file is skipped.
-3. Zero-config discovery — when no inventory file is loaded, Canopy starts with an empty inventory and fills it from [Discovery](#discovery).
+3. Zero-config discovery — when no inventory file is loaded, Canopy starts with an empty inventory. Discovery then runs at startup and periodically (see [Discovery](#discovery)).
 
-Discovered instances are appended to any configured inventory and deduplicated by instance id, so a configured id wins over a discovered instance with the same id. `-listen <host:port>` overrides the listen address from any source. Defaults are `127.0.0.1:8080` for the listener, 10 seconds for the fleet interval, and 2 seconds for the selected-instance interval.
+At startup, discovery is merged into the loaded inventory by appending discovered instances whose ids are not already configured, so a configured id is kept during that first merge. Once the app is running, the periodic discovery loop reconciles the working inventory from each scan: when discovery returns at least one instance, a discovered id replaces the previous definition for that id, and any previous id absent from the discovery result is removed. A configured instance that is also discovered is therefore replaced by the discovered definition, and a configured instance that is not locally discovered (for example a remote SSH instance) is removed from the working set at the next reconciliation. `-listen <host:port>` overrides the listen address from any source. Defaults are `127.0.0.1:8080` for the listener, 10 seconds for the fleet interval, and 2 seconds for the selected-instance interval.
 
 ## Empty state
 
