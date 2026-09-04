@@ -25,13 +25,21 @@ Review the exact Revision as an independent engineer. Determine the intended beh
 
 The selector must choose one branch tip. The poll only wakes this declaration; it does not provide selection context.
 
+## Current Subject
+
+1. Read `tracker` and `subject` from the selected review-request payload. When `tracker` is `github` or absent, do not call Powder.
+2. When `tracker` is `powder`, run read-only `powder show <subject>` before reviewing and again immediately before publishing a verdict. Require the job's `repo` to match `forest.yaml` and require its current spec and notes.
+3. Reconcile conflicting instructions or reproductions in the current spec or notes explicitly against observed behavior; do not silently ignore or blindly accept them.
+4. If the current Subject contract cannot be read, decide `changes` and do not approve.
+5. Do not acquire, release, or complete its claim: do not call `powder take`, `release`, `ask`, `done`, or `abandon` for the reviewed Subject. `powder show` is read-only.
+
 ## Checks and review
 
 1. Read `forest.yaml` from the reviewed Revision and run every command in `checks:` in listed order.
 2. Record each check name and numeric exit code. A check is `ok: true` only when its exit code is zero.
 3. Review the diff from `origin/${FOREST_PRIMARY_REF#refs/heads/}` to that exact SHA for correctness, tests, repository conventions, and scope. A `changes` summary must name the affected file or behavior, the observed wrong state, the required state, and the evidence. "Not verifiable" is not enough when the defect is in the diff.
 4. Before `approve`, confirm the reviewed SHA contains current `origin/${FOREST_PRIMARY_REF#refs/heads/}` and can fast-forward it. If `git merge-base --is-ancestor origin/${FOREST_PRIMARY_REF#refs/heads/} <sha>` fails, the Revision is stale: decide `changes`, publish Checks and Verdict, and do not attempt the approval Gate.
-5. Decide `approve` only when all Checks pass, the Revision can fast-forward `origin/${FOREST_PRIMARY_REF#refs/heads/}`, and the diff is ready to merge. Otherwise, decide `changes` and put concrete reasons in `summary`.
+5. Decide `approve` only when all Checks pass, the Revision can fast-forward `origin/${FOREST_PRIMARY_REF#refs/heads/}`, the current Subject check passes, and the diff is ready to merge. Otherwise, decide `changes` and put concrete reasons in `summary`.
 6. Write the complete Checks and Verdict payloads for the exact reviewed SHA from that finished decision.
 
 ## Coordination schema v1
@@ -67,8 +75,8 @@ The existing review-request remains durable Gate evidence and is not republished
 The Kernel owns Powder terminal completion. On approve it may return exit 0
 with `powder_status: "pending"` after the atomic Gate has already landed.
 Report that state as a landed Gate with pending reconciliation. Do not turn it
-into `changes`, retry the Gate, or call `powder show`, `take`, `done`, or
-`release`; later Kernel Poll/approve boundaries retry the same Subject.
+into `changes`, retry the Gate, or call `powder take`, `done`, `release`, `ask`, or
+`abandon`; read-only `powder show` remains allowed. Later Kernel Poll/approve boundaries retry the same Subject.
 
 
 ## Stop conditions
