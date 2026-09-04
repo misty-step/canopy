@@ -21,6 +21,17 @@
       {{template "instance.html" .Selected}}
     </main>
   </div>
+  <div id="log-drawer" class="log-drawer" role="dialog" aria-modal="true" aria-labelledby="log-drawer-title" hidden>
+    <div class="log-drawer-backdrop" data-log-close aria-hidden="true"></div>
+    <section class="log-drawer-panel" aria-label="Run log viewer">
+      <header class="log-drawer-header">
+        <h2 id="log-drawer-title">Run log</h2>
+        <button type="button" class="log-drawer-close" data-log-close aria-label="Close log viewer">Close</button>
+      </header>
+      <div id="log-drawer-body" class="log-drawer-body"></div>
+    </section>
+  </div>
   <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/canopy.js" defer></script>
 </body>
 </html>
