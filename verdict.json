@@ -1,0 +1,7 @@
+{
+  "schema": "forest.verdict.v1",
+  "revision": "34b04b06de58ebfe735dedd977b00c2a614cc752",
+  "verdict": "changes",
+  "summary": "Revision 34b04b06de58ebfe735dedd977b00c2a614cc752 cannot fast-forward origin/master and must not use the approval Gate. origin/master is 73d14896ee481447a80453dbd97b57461e8383d6 (fix(canopy): derive freshness window from collection cycle budget); git merge-base --is-ancestor origin/master 34b04b06de58ebfe735dedd977b00c2a614cc752 exits 1 with merge-base 674894f979ce78f3092027edac01eccfdf21f53a, so the reviewed SHA does not contain current master. Required state: the branch tip must contain origin/master so master can fast-forward. Both configured checks passed (go test ./... exit 0, go vet ./... exit 0); the stale ancestry is the blocking defect.",
+  "time": "2026-09-04T20:08:16Z"
+}
