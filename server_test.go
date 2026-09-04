@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -115,5 +116,74 @@ func TestHealthIsProcessLivenessOnly(t *testing.T) {
 	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if recorder.Code != http.StatusOK || recorder.Body.String() != "ok\n" {
 		t.Fatalf("health status=%d body=%q, want 200 ok", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAuditDivergenceStaleOverride(t *testing.T) {
+	templates, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	tests := []struct {
+		name      string
+		audit     AuditData
+		wantClass string
+		wantText  string
+	}{
+		{
+			name:      "divergent pass is stale",
+			audit:     AuditData{LastResult: "pass", LastMaster: "sha-new", AuditedMaster: "sha-old"},
+			wantClass: "stale",
+			wantText:  "pass",
+		},
+		{
+			name:      "divergent trusted is stale",
+			audit:     AuditData{LastResult: "trusted", LastMaster: "sha-new", AuditedMaster: "sha-old"},
+			wantClass: "stale",
+			wantText:  "trusted",
+		},
+		{
+			name:      "equal revisions retain result class",
+			audit:     AuditData{LastResult: "pass", LastMaster: "sha-same", AuditedMaster: "sha-same"},
+			wantClass: "ok",
+			wantText:  "pass",
+		},
+		{
+			name:      "missing audited revision retains result class",
+			audit:     AuditData{LastResult: "pass", LastMaster: "sha-new", AuditedMaster: ""},
+			wantClass: "ok",
+			wantText:  "pass",
+		},
+		{
+			name:      "missing current revision retains result class",
+			audit:     AuditData{LastResult: "pass", LastMaster: "", AuditedMaster: "sha-old"},
+			wantClass: "ok",
+			wantText:  "pass",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inventory := testInventory()
+			instance := inventory.Instances[0]
+			snapshot := Snapshot{
+				Instance: instance,
+				Version:  VersionData{BuildSHA: "abc"},
+				Config:   ConfigData{Repo: "misty-step/canopy", Primary: "master"},
+				Status:   StatusData{Audit: test.audit},
+			}
+			collector := &testCollector{}
+			collector.collect = func(context.Context, Instance) (Snapshot, error) { return snapshot, nil }
+			app := NewApp(inventory, collector, templates)
+			app.refreshOnce(context.Background(), instance)
+			recorder := httptest.NewRecorder()
+			app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/fragments/instance?instance=one", nil))
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+			}
+			wantBadge := fmt.Sprintf(`<span class="signal %s">%s</span>`, test.wantClass, test.wantText)
+			if !strings.Contains(recorder.Body.String(), wantBadge) {
+				t.Fatalf("body=%q, want audit badge %q", recorder.Body.String(), wantBadge)
+			}
+		})
 	}
 }
