@@ -40,11 +40,14 @@ type App struct {
 	collector Collector
 	templates *template.Template
 
-	mu       sync.RWMutex
-	states   map[string]*InstanceState
-	workers  map[string]*instanceWorker
-	selected string
-	start    sync.Once
+	mu      sync.RWMutex
+	states  map[string]*InstanceState
+	workers map[string]*instanceWorker
+	// discovered records instances added by auto-discovery so reconciliation
+	// never removes an explicitly configured inventory entry.
+	discovered map[string]struct{}
+	selected   string
+	start      sync.Once
 }
 
 func NewApp(inventory Inventory, collector Collector, templates *template.Template) *App {
@@ -65,12 +68,13 @@ func NewApp(inventory Inventory, collector Collector, templates *template.Templa
 		selected = inventory.Instances[0].ID
 	}
 	return &App{
-		inventory: inventory,
-		collector: collector,
-		templates: templates,
-		states:    states,
-		workers:   workers,
-		selected:  selected,
+		inventory:  inventory,
+		collector:  collector,
+		templates:  templates,
+		states:     states,
+		workers:    workers,
+		discovered: make(map[string]struct{}),
+		selected:   selected,
 	}
 }
 
@@ -115,7 +119,6 @@ func (a *App) discoveryLoop(ctx context.Context) {
 		}
 	}
 }
-
 
 func (a *App) refreshLoop(ctx context.Context, instance Instance, worker *instanceWorker) {
 	// An immediate first attempt makes the first page useful without waiting
@@ -236,20 +239,26 @@ func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance
 		discMap[disc.ID] = disc
 	}
 
-	// 1. Remove instances that no longer exist
-	newInstances := make([]Instance, 0, len(discovered))
+	// 1. Reconcile the effective list. Explicit inventory entries are never
+	// removed; only instances previously added by auto-discovery are pruned
+	// when they stop appearing.
+	newInstances := make([]Instance, 0, len(a.inventory.Instances)+len(discovered))
 	for _, existing := range a.inventory.Instances {
-		if updated, exists := discMap[existing.ID]; exists {
-			// Keep existing or updated instance definition
-			newInstances = append(newInstances, updated)
-		} else {
-			// Obsolete instance: cancel and clean up worker
-			if worker, ok := a.workers[existing.ID]; ok && worker != nil && worker.cancel != nil {
-				worker.cancel()
+		if _, wasDiscovered := a.discovered[existing.ID]; wasDiscovered {
+			if updated, stillPresent := discMap[existing.ID]; stillPresent {
+				newInstances = append(newInstances, updated)
+			} else {
+				// Obsolete discovered instance: cancel and clean up worker
+				if worker, ok := a.workers[existing.ID]; ok && worker != nil && worker.cancel != nil {
+					worker.cancel()
+				}
+				delete(a.workers, existing.ID)
+				delete(a.states, existing.ID)
+				delete(a.discovered, existing.ID)
 			}
-			delete(a.workers, existing.ID)
-			delete(a.states, existing.ID)
+			continue
 		}
+		newInstances = append(newInstances, existing)
 	}
 
 	// 2. Add newly discovered instances
@@ -260,14 +269,16 @@ func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance
 
 	var added []Instance
 	for _, disc := range discovered {
-		if !existingMap[disc.ID] {
-			existingMap[disc.ID] = true
-			newInstances = append(newInstances, disc)
-			a.states[disc.ID] = &InstanceState{}
-			worker := &instanceWorker{wake: make(chan struct{}, 1)}
-			a.workers[disc.ID] = worker
-			added = append(added, disc)
+		if existingMap[disc.ID] {
+			continue
 		}
+		existingMap[disc.ID] = true
+		newInstances = append(newInstances, disc)
+		a.discovered[disc.ID] = struct{}{}
+		a.states[disc.ID] = &InstanceState{}
+		worker := &instanceWorker{wake: make(chan struct{}, 1)}
+		a.workers[disc.ID] = worker
+		added = append(added, disc)
 	}
 	a.inventory.Instances = newInstances
 

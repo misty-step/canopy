@@ -130,3 +130,25 @@ func TestRefreshWorkersDoNotOverlap(t *testing.T) {
 	}
 	close(release)
 }
+
+func TestSyncDiscoveredInstancesPreservesExplicitInventory(t *testing.T) {
+	app := NewApp(testInventory(), &testCollector{}, nil)
+
+	discovered := []Instance{
+		{ID: "discovered", Label: "Discovered", Root: "/tmp/discovered", Forest: "forest"},
+	}
+	app.syncDiscoveredInstances(context.Background(), discovered)
+
+	got := app.instances()
+	if len(got) != 2 {
+		t.Fatalf("instances after first sync=%+v, want explicit plus discovered", got)
+	}
+
+	// A later discovery pass that no longer reports the discovered instance
+	// must remove it while retaining the explicitly configured entry.
+	app.syncDiscoveredInstances(context.Background(), nil)
+	got = app.instances()
+	if len(got) != 1 || got[0].ID != "one" {
+		t.Fatalf("instances after empty sync=%+v, want only explicit instance one", got)
+	}
+}

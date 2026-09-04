@@ -42,21 +42,6 @@ func main() {
 		}
 	}
 
-	// Auto-discover all local Forest instances
-	discovered, err := DiscoverLocalInstances(context.Background())
-	if err == nil && len(discovered) > 0 {
-		seen := make(map[string]bool)
-		for _, inst := range inventory.Instances {
-			seen[inst.ID] = true
-		}
-		for _, disc := range discovered {
-			if !seen[disc.ID] {
-				seen[disc.ID] = true
-				inventory.Instances = append(inventory.Instances, disc)
-			}
-		}
-	}
-
 	if *listenOverride != "" {
 		inventory.Listen = *listenOverride
 	}
@@ -77,6 +62,14 @@ func main() {
 	app := NewApp(inventory, collector, templates)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Auto-discover local Forest instances and merge them alongside explicit
+	// inventory entries, which reconciliation must preserve.
+	discovered, err := DiscoverLocalInstances(ctx)
+	if err == nil && len(discovered) > 0 {
+		app.syncDiscoveredInstances(ctx, discovered)
+	}
+
 	app.Start(ctx)
 
 	server := &http.Server{
