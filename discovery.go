@@ -115,9 +115,13 @@ func scanDevelopmentRoots(out map[string]Instance) {
 }
 
 // scanDevelopmentRoot adds one discoverable instance per directory under
-// parent that contains both a .forest directory and an executable ./forest
-// binary. It is separated from scanDevelopmentRoots so unit tests can supply
-// a temporary directory with mocked checkouts.
+// parent that declares itself a Forest checkout. A checkout is recognized
+// either by a forest.yaml declaration or by the legacy combination of a
+// .forest directory and an executable repo-local ./forest binary. When the
+// repo-local binary is missing or not executable, the Forest binary is
+// resolved from PATH and then from the self-host Iron Forest factory
+// checkout. It is separated from scanDevelopmentRoots so unit tests can
+// supply a temporary directory with mocked checkouts.
 func scanDevelopmentRoot(parent string, out map[string]Instance) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
@@ -131,21 +135,54 @@ func scanDevelopmentRoot(parent string, out map[string]Instance) {
 		repoPath := filepath.Join(parent, entry.Name())
 		forestDir := filepath.Join(repoPath, ".forest")
 		forestBin := filepath.Join(repoPath, "forest")
+		forestYAML := filepath.Join(repoPath, "forest.yaml")
 
-		if fi, err := os.Stat(forestDir); err == nil && fi.IsDir() {
-			if isExecutable(forestBin) {
-				if _, exists := out[repoPath]; !exists {
-					id := sanitizeID(entry.Name())
-					out[repoPath] = Instance{
-						ID:     id,
-						Label:  formatLabel(id),
-						Root:   repoPath,
-						Forest: forestBin,
-					}
-				}
+		if !isRegularFile(forestYAML) {
+			fi, err := os.Stat(forestDir)
+			if err != nil || !fi.IsDir() || !isExecutable(forestBin) {
+				continue
 			}
 		}
+
+		binary := resolveForestBinary(repoPath, parent)
+		if binary == "" {
+			continue
+		}
+
+		if _, exists := out[repoPath]; exists {
+			continue
+		}
+		id := sanitizeID(entry.Name())
+		out[repoPath] = Instance{
+			ID:     id,
+			Label:  formatLabel(id),
+			Root:   repoPath,
+			Forest: binary,
+		}
 	}
+}
+
+// resolveForestBinary returns the Forest executable to use for a checkout.
+// It prefers a repo-local ./forest binary, then one on PATH, then the
+// compiled binary in the self-host Iron Forest factory checkout.
+func resolveForestBinary(repoPath, parent string) string {
+	local := filepath.Join(repoPath, "forest")
+	if isExecutable(local) {
+		return local
+	}
+	if path, err := exec.LookPath("forest"); err == nil && path != "" {
+		return path
+	}
+	factory := filepath.Join(parent, "iron-forest", "forest")
+	if isExecutable(factory) {
+		return factory
+	}
+	return ""
+}
+
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func isExecutable(path string) bool {
