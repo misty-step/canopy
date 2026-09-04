@@ -28,8 +28,9 @@ type InstanceState struct {
 }
 
 type instanceWorker struct {
-	wake   chan struct{}
-	cancel context.CancelFunc
+	wake    chan struct{}
+	cancel  context.CancelFunc
+	started bool
 }
 
 // App owns the in-memory projection and the bounded refresh workers. The
@@ -94,9 +95,10 @@ func (a *App) Start(ctx context.Context) {
 			}
 			seen[instance.ID] = struct{}{}
 			worker := a.workers[instance.ID]
-			if worker == nil {
+			if worker == nil || worker.started {
 				continue
 			}
+			worker.started = true
 			go a.refreshLoop(ctx, instance, worker)
 		}
 		// Start background periodic auto-discovery
@@ -294,7 +296,8 @@ func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance
 	// 4. Start workers for newly added instances with individual cancellation
 	for _, inst := range added {
 		worker := a.workers[inst.ID]
-		if worker != nil {
+		if worker != nil && !worker.started {
+			worker.started = true
 			wCtx, cancel := context.WithCancel(ctx)
 			worker.cancel = cancel
 			go a.refreshLoop(wCtx, inst, worker)

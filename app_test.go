@@ -52,6 +52,58 @@ func (c *testCollector) Logs(ctx context.Context, instance Instance, runID strin
 	return c.logs(ctx, instance, runID, follow)
 }
 
+type blockingCollector struct {
+	mu      sync.Mutex
+	active  map[string]int
+	max     map[string]int
+	release chan struct{}
+}
+
+func newBlockingCollector() *blockingCollector {
+	return &blockingCollector{
+		active:  make(map[string]int),
+		max:     make(map[string]int),
+		release: make(chan struct{}),
+	}
+}
+
+func (c *blockingCollector) Collect(ctx context.Context, instance Instance) (Snapshot, error) {
+	c.mu.Lock()
+	c.active[instance.ID]++
+	if c.active[instance.ID] > c.max[instance.ID] {
+		c.max[instance.ID] = c.active[instance.ID]
+	}
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.active[instance.ID]--
+		c.mu.Unlock()
+	}()
+
+	select {
+	case <-c.release:
+		return Snapshot{Instance: instance}, nil
+	case <-ctx.Done():
+		return Snapshot{}, ctx.Err()
+	}
+}
+
+func (c *blockingCollector) Logs(context.Context, Instance, string, bool) (LogResult, error) {
+	return LogResult{}, nil
+}
+
+func (c *blockingCollector) maxFor(id string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.max[id]
+}
+
+func (c *blockingCollector) activeFor(id string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.active[id]
+}
+
 func testInventory() Inventory {
 	return Inventory{
 		FleetIntervalSeconds:    30,
@@ -129,6 +181,75 @@ func TestRefreshWorkersDoNotOverlap(t *testing.T) {
 		t.Fatalf("maximum concurrent collectors=%d, want 1", max)
 	}
 	close(release)
+}
+
+func TestStartupDiscoveredInstanceLaunchesSingleWorker(t *testing.T) {
+	inventory := testInventory()
+	inventory.SelectedIntervalSeconds = 1
+	inventory.FleetIntervalSeconds = 1
+	collector := newBlockingCollector()
+	app := NewApp(inventory, collector, template.New("unused"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer close(collector.release)
+
+	app.syncDiscoveredInstances(ctx, []Instance{
+		{ID: "discovered", Label: "Discovered", Root: "/tmp/discovered", Forest: "forest"},
+	})
+	app.Start(ctx)
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if collector.maxFor("discovered") == 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := collector.maxFor("discovered"); got != 1 {
+		t.Fatalf("maximum concurrent collectors for startup-discovered instance=%d, want 1", got)
+	}
+}
+
+func TestStartupDiscoveredInstanceWorkerStopsAfterPrune(t *testing.T) {
+	inventory := testInventory()
+	inventory.SelectedIntervalSeconds = 1
+	inventory.FleetIntervalSeconds = 1
+	collector := newBlockingCollector()
+	app := NewApp(inventory, collector, template.New("unused"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer close(collector.release)
+
+	app.syncDiscoveredInstances(ctx, []Instance{
+		{ID: "discovered", Label: "Discovered", Root: "/tmp/discovered", Forest: "forest"},
+	})
+	app.Start(ctx)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if collector.activeFor("discovered") > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := collector.activeFor("discovered"); got != 1 {
+		t.Fatalf("active startup-discovered collectors before prune=%d, want 1", got)
+	}
+
+	app.syncDiscoveredInstances(ctx, nil)
+
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if collector.activeFor("discovered") == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := collector.activeFor("discovered"); got != 0 {
+		t.Fatalf("active startup-discovered collectors after prune=%d, want 0", got)
+	}
 }
 
 func TestSyncDiscoveredInstancesPreservesExplicitInventory(t *testing.T) {
