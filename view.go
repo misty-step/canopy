@@ -143,8 +143,8 @@ type LogView struct {
 
 // classifyFreshness keeps a successful snapshot visible while making an
 // unsuccessful attempt visibly stale. A state without a first success is
-// unknown rather than healthy. maxAge is the missed-refresh window after which
-// a silent worker is stale.
+// unknown rather than healthy. maxAge is the missed-refresh window (see
+// freshnessWindow) after which a silent worker is stale.
 func classifyFreshness(state InstanceState, now time.Time, maxAge time.Duration) Freshness {
 	if state.Snapshot == nil || state.LastSuccess.IsZero() {
 		return Unknown
@@ -169,7 +169,7 @@ func (a *App) pageView(selectedID string, now time.Time) PageView {
 	views := make([]InstanceView, 0, len(instances))
 	for _, instance := range instances {
 		state, _ := a.state(instance.ID)
-		views = append(views, instanceView(instance, state, instance.ID == selectedID, now, 3*a.refreshInterval(instance.ID)))
+		views = append(views, instanceView(instance, state, instance.ID == selectedID, now, a.freshnessWindow(instance.ID)))
 	}
 	selected := InstanceView{}
 	for _, view := range views {

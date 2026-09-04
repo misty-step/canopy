@@ -14,6 +14,11 @@ const (
 	// A collector should never hold a worker forever. The CLI collector also
 	// applies its own command timeout; this bound protects custom collectors.
 	refreshTimeout = 30 * time.Second
+	// freshnessSchedulingSlack is the small scheduling allowance included in
+	// the missed-refresh budget for timer and render drift. A refresh loop
+	// waits the configured interval after each collection completes, so one
+	// legitimate cycle can take the interval plus the full collection bound.
+	freshnessSchedulingSlack = time.Second
 )
 
 // InstanceState is the volatile state Canopy keeps for one configured
@@ -162,6 +167,16 @@ func (a *App) refreshInterval(id string) time.Duration {
 		return defaultFleetInterval
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+// freshnessWindow is the authoritative missed-refresh budget for one
+// instance: the configured wait between collections plus the worst-case
+// collection bound plus a small scheduling allowance. A silent worker that
+// exceeds one legitimate cycle without a success is stale, even when its
+// last attempt reported no explicit error. LastAttempt never extends this
+// window.
+func (a *App) freshnessWindow(id string) time.Duration {
+	return a.refreshInterval(id) + refreshTimeout + freshnessSchedulingSlack
 }
 
 // refreshOnce records an attempt before invoking the collector and records
