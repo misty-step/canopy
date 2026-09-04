@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"html/template"
@@ -83,7 +84,7 @@ func TestReadOnlyRoutesRejectMutationMethods(t *testing.T) {
 
 func TestHandlerServesEmbeddedStaticFiles(t *testing.T) {
 	app := NewApp(testInventory(), &testCollector{}, testTemplates(t))
-	for _, path := range []string{"/static/canopy.css", "/static/htmx.min.js"} {
+	for _, path := range []string{"/static/canopy.css", "/static/canopy.js", "/static/htmx.min.js"} {
 		recorder := httptest.NewRecorder()
 		app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		if recorder.Code != http.StatusOK || recorder.Body.Len() == 0 {
@@ -115,5 +116,49 @@ func TestHealthIsProcessLivenessOnly(t *testing.T) {
 	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if recorder.Code != http.StatusOK || recorder.Body.String() != "ok\n" {
 		t.Fatalf("health status=%d body=%q, want 200 ok", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLogViewerTemplatesRenderDrawerAndCopyControl(t *testing.T) {
+	templates, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("load templates: %v", err)
+	}
+
+	var page bytes.Buffer
+	if err := templates.ExecuteTemplate(&page, "page.html", PageView{}); err != nil {
+		t.Fatalf("render page template: %v", err)
+	}
+	for _, want := range []string{`id="log-drawer"`, `id="log-drawer-body"`, `data-log-close`, `/static/canopy.js`} {
+		if !strings.Contains(page.String(), want) {
+			t.Fatalf("page template missing %q", want)
+		}
+	}
+
+	selected := InstanceView{
+		ID:         "one",
+		Freshness:  "fresh",
+		LiveRuns:   []LiveRunViewModel{{RunID: "live-1", Agent: "builder"}},
+		RecentRuns: []RunViewModel{{RunID: "recent-1", ExitLabel: "exit 0", Status: "passed"}},
+	}
+	var instanceHTML bytes.Buffer
+	if err := templates.ExecuteTemplate(&instanceHTML, "instance.html", selected); err != nil {
+		t.Fatalf("render instance template: %v", err)
+	}
+	for _, want := range []string{`data-log-open`, `hx-target="#log-drawer-body"`} {
+		if !strings.Contains(instanceHTML.String(), want) {
+			t.Fatalf("instance template missing %q", want)
+		}
+	}
+
+	exit := 0
+	var log bytes.Buffer
+	if err := templates.ExecuteTemplate(&log, "log.html", LogView{RunID: "run-1", State: "retained", Text: "line one", Exit: &exit}); err != nil {
+		t.Fatalf("render log template: %v", err)
+	}
+	for _, want := range []string{`data-log-copy`, "run-1", "line one"} {
+		if !strings.Contains(log.String(), want) {
+			t.Fatalf("log template missing %q", want)
+		}
 	}
 }

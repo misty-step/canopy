@@ -56,7 +56,7 @@
           {{if .LiveRuns}}
             <div class="data-table-wrap"><table class="data-table"><thead><tr><th>Run</th><th>Agent</th><th>Started</th><th>Elapsed</th><th>Logs</th></tr></thead><tbody>
               {{range .LiveRuns}}
-                <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td class="mono">{{.StartedAt}}</td><td>{{.Elapsed}}</td><td><a class="log-link" href="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-get="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-target="next .log-output" hx-swap="outerHTML">open log</a><div id="log-{{.RunID}}" class="log-output muted" hx-preserve="true">on demand</div></td></tr>
+                <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td class="mono">{{.StartedAt}}</td><td>{{.Elapsed}}</td><td><a class="log-link" data-log-open href="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-get="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-target="#log-drawer-body" hx-swap="innerHTML">open log</a></td></tr>
               {{end}}
             </tbody></table></div>
           {{else}}<p class="empty">No live runs reported.</p>{{end}}
@@ -81,7 +81,7 @@
             <div class="data-table-wrap">
             <table class="data-table"><thead><tr><th>Run</th><th>Agent</th><th>Outcome</th><th>Duration</th><th>Logs</th></tr></thead><tbody>
               {{range .RecentRuns}}
-                <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td><span class="signal {{if eq .Status "passed"}}ok{{else}}error{{end}}">{{.ExitLabel}}</span>{{if .Error}}<br><span class="muted">{{.Error}}</span>{{end}}</td><td>{{.Duration}}</td><td><a class="log-link" href="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-get="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-target="next .log-output" hx-swap="outerHTML">open</a><div id="log-{{.RunID}}" class="log-output muted" hx-preserve="true">on demand</div></td></tr>
+                <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td><span class="signal {{if eq .Status "passed"}}ok{{else}}error{{end}}">{{.ExitLabel}}</span>{{if .Error}}<br><span class="muted">{{.Error}}</span>{{end}}</td><td>{{.Duration}}</td><td><a class="log-link" data-log-open href="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-get="/logs?instance={{$.ID}}&amp;run={{.RunID}}" hx-target="#log-drawer-body" hx-swap="innerHTML">open</a></td></tr>
               {{end}}
             </tbody></table>
             </div>
