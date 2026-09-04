@@ -187,3 +187,130 @@ func TestAuditDivergenceStaleOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestHandlerInstanceParamValidationAcrossRoutes(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		url      string
+		code     int
+		wantBody string
+	}{
+		{name: "page missing optional", url: "/", code: http.StatusOK},
+		{name: "fleet missing optional", url: "/fragments/fleet", code: http.StatusOK},
+		{name: "instance missing optional", url: "/fragments/instance", code: http.StatusOK},
+		{name: "logs missing required", url: "/logs?run=run-1", code: http.StatusBadRequest, wantBody: "instance is required"},
+
+		{name: "page present empty", url: "/?instance=", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "fleet present empty", url: "/fragments/fleet?instance=", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "instance present empty", url: "/fragments/instance?instance=", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "logs present empty", url: "/logs?instance=&run=run-1", code: http.StatusBadRequest, wantBody: "invalid instance"},
+
+		{name: "page duplicate", url: "/?instance=one&instance=one", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "fleet duplicate", url: "/fragments/fleet?instance=one&instance=two", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "instance duplicate", url: "/fragments/instance?instance=one&instance=one", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "logs duplicate", url: "/logs?instance=one&instance=one&run=run-1", code: http.StatusBadRequest, wantBody: "invalid instance"},
+
+		{name: "page traversal dotdot", url: "/?instance=..", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "fleet traversal dotdot", url: "/fragments/fleet?instance=..", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "instance traversal dotdot", url: "/fragments/instance?instance=..", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "logs traversal dotdot", url: "/logs?instance=..&run=run-1", code: http.StatusBadRequest, wantBody: "invalid instance"},
+
+		{name: "page separator slash", url: "/?instance=bad%2Fid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "fleet separator slash", url: "/fragments/fleet?instance=bad%2Fid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "instance separator slash", url: "/fragments/instance?instance=bad%2Fid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "logs separator slash", url: "/logs?instance=bad%2Fid&run=run-1", code: http.StatusBadRequest, wantBody: "invalid instance"},
+
+		{name: "page dot", url: "/?instance=.", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "page backslash", url: "/?instance=bad%5Cid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "page space", url: "/?instance=bad%20id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "page unicode nbsp", url: "/?instance=bad%C2%A0id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "page unicode em space", url: "/?instance=bad%E2%80%83id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "page control", url: "/?instance=bad%01id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "page tab", url: "/?instance=bad%09id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+
+		{name: "question", url: "/?instance=bad%3Fid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "hash", url: "/?instance=bad%23id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "ampersand", url: "/?instance=bad%26id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "semicolon", url: "/?instance=bad%3Bid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "pipe", url: "/?instance=bad%7Cid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "backtick", url: "/?instance=bad%60id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "dollar", url: "/?instance=bad%24id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "squote", url: "/?instance=bad%27id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "dquote", url: "/?instance=bad%22id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "lt", url: "/?instance=bad%3Cid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "gt", url: "/?instance=bad%3Eid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "star", url: "/?instance=bad%2Aid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "lparen", url: "/?instance=bad%28id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "rparen", url: "/?instance=bad%29id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "lbracket", url: "/?instance=bad%5Bid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "rbracket", url: "/?instance=bad%5Did", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "lbrace", url: "/?instance=bad%7Bid", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "rbrace", url: "/?instance=bad%7Did", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "bang", url: "/?instance=bad%21id", code: http.StatusBadRequest, wantBody: "invalid instance"},
+		{name: "equals", url: "/?instance=bad%3Did", code: http.StatusBadRequest, wantBody: "invalid instance"},
+
+		{name: "page unknown", url: "/?instance=missing", code: http.StatusNotFound, wantBody: "unknown instance"},
+		{name: "fleet unknown", url: "/fragments/fleet?instance=missing", code: http.StatusNotFound, wantBody: "unknown instance"},
+		{name: "instance unknown", url: "/fragments/instance?instance=missing", code: http.StatusNotFound, wantBody: "unknown instance"},
+		{name: "logs unknown", url: "/logs?instance=missing&run=run-1", code: http.StatusNotFound, wantBody: "unknown instance"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			collector := &testCollector{}
+			logsCalls := 0
+			collector.logs = func(context.Context, Instance, string, bool) (LogResult, error) {
+				logsCalls++
+				return LogResult{}, &CLIError{Command: "run logs", Exit: 4, Message: "not found"}
+			}
+			app := NewApp(testInventory(), collector, testTemplates(t))
+			recorder := httptest.NewRecorder()
+			app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.url, nil))
+			if recorder.Code != test.code {
+				t.Fatalf("GET %s status=%d, want %d; body=%s", test.url, recorder.Code, test.code, recorder.Body.String())
+			}
+			if test.wantBody != "" && !strings.Contains(recorder.Body.String(), test.wantBody) {
+				t.Fatalf("GET %s body=%q, want %q", test.url, recorder.Body.String(), test.wantBody)
+			}
+			if strings.HasPrefix(test.url, "/logs") && test.code != http.StatusOK && logsCalls != 0 {
+				t.Fatalf("GET %s made %d collector Logs calls, want 0", test.url, logsCalls)
+			}
+		})
+	}
+}
+
+func TestHandlerLogsRunParamValidationSkipsCollector(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		url       string
+		code      int
+		wantBody  string
+		wantCalls int
+	}{
+		{name: "missing run", url: "/logs?instance=one", code: http.StatusBadRequest, wantBody: "run is required", wantCalls: 0},
+		{name: "empty run", url: "/logs?instance=one&run=", code: http.StatusBadRequest, wantBody: "run is required", wantCalls: 0},
+		{name: "duplicate run", url: "/logs?instance=one&run=run-1&run=run-1", code: http.StatusBadRequest, wantBody: "invalid run", wantCalls: 0},
+		{name: "malformed run slash", url: "/logs?instance=one&run=bad%2Frun", code: http.StatusBadRequest, wantBody: "invalid run", wantCalls: 0},
+		{name: "malformed run traversal", url: "/logs?instance=one&run=..", code: http.StatusBadRequest, wantBody: "invalid run", wantCalls: 0},
+		{name: "unknown run reaches collector", url: "/logs?instance=one&run=missing-run", code: http.StatusOK, wantBody: "unknown", wantCalls: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			collector := &testCollector{}
+			logsCalls := 0
+			collector.logs = func(_ context.Context, _ Instance, _ string, _ bool) (LogResult, error) {
+				logsCalls++
+				return LogResult{}, &CLIError{Command: "run logs", Exit: 4, Message: "not found"}
+			}
+			app := NewApp(testInventory(), collector, testTemplates(t))
+			recorder := httptest.NewRecorder()
+			app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.url, nil))
+			if recorder.Code != test.code {
+				t.Fatalf("GET %s status=%d, want %d; body=%s", test.url, recorder.Code, test.code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), test.wantBody) {
+				t.Fatalf("GET %s body=%q, want %q", test.url, recorder.Body.String(), test.wantBody)
+			}
+			if logsCalls != test.wantCalls {
+				t.Fatalf("GET %s collector Logs calls=%d, want %d", test.url, logsCalls, test.wantCalls)
+			}
+		})
+	}
+}
