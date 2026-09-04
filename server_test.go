@@ -41,6 +41,12 @@ func TestInitialCollectionFailureRendersUnknown(t *testing.T) {
 	if view.Reachable || view.Freshness != string(Unknown) {
 		t.Fatalf("first failure reachable=%t freshness=%s", view.Reachable, view.Freshness)
 	}
+	if want := "attempted " + formatTime(state.LastAttempt); view.LastObserved != want {
+		t.Fatalf("first failure last observed=%q, want %q", view.LastObserved, want)
+	}
+	if len(view.Errors) != 1 || view.Errors[0] != offline.Error() {
+		t.Fatalf("first failure errors=%q, want %q", view.Errors, offline.Error())
+	}
 	recorder := httptest.NewRecorder()
 	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/fragments/instance?instance=one", nil))
 	if recorder.Code != http.StatusOK {
@@ -50,6 +56,11 @@ func TestInitialCollectionFailureRendersUnknown(t *testing.T) {
 	for _, want := range []string{`class="status-badge unknown"`, "attempted " + formatTime(state.LastAttempt), offline.Error(), `id="waiting-title"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("fragment lacks %q", want)
+		}
+	}
+	for _, stale := range []string{`>fresh<`, `>stale<`} {
+		if strings.Contains(body, stale) {
+			t.Errorf("fragment shows %q classification, want unknown only", stale)
 		}
 	}
 }
