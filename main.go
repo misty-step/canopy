@@ -34,11 +34,15 @@ func main() {
 		}
 		inventory = loaded
 	} else {
-		// Try default canopy.json if it exists, otherwise start with zero config
+		// A default canopy.json that exists as a file is explicit operator
+		// configuration and must fail loudly like -config; only an absent
+		// default preserves zero-config discovery.
 		if fi, err := os.Stat("canopy.json"); err == nil && !fi.IsDir() {
-			if loaded, err := LoadInventory("canopy.json"); err == nil {
-				inventory = loaded
+			loaded, err := LoadInventory("canopy.json")
+			if err != nil {
+				log.Fatalf("load inventory: %v", err)
 			}
+			inventory = loaded
 		}
 	}
 
