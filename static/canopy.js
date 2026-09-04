@@ -2,6 +2,7 @@
   "use strict";
 
   var lastTrigger = null;
+  var lastRun = null;
 
   function drawer() {
     return document.getElementById("log-drawer");
@@ -9,6 +10,10 @@
 
   function body() {
     return document.getElementById("log-drawer-body");
+  }
+
+  function runID(elt) {
+    return elt && elt.getAttribute ? elt.getAttribute("data-log-run") || null : null;
   }
 
   function openDrawer(trigger) {
@@ -20,12 +25,27 @@
     if (content) {
       content.innerHTML = '<p class="muted">Loading log\u2026</p>';
     }
+    // Only the most recently opened run may populate the drawer. A previous
+    // run's log request can stay in flight for up to refreshTimeout (30s), so
+    // cancel it before opening a different run; otherwise its late response
+    // could overwrite the newer run's log in #log-drawer-body.
+    if (lastTrigger && lastTrigger !== trigger) {
+      cancelLogRequest(lastTrigger);
+    }
     lastTrigger = trigger || null;
+    lastRun = runID(trigger);
     panel.hidden = false;
     var closeButton = panel.querySelector(".log-drawer-close");
     if (closeButton) {
       closeButton.focus();
     }
+  }
+
+  function cancelLogRequest(elt) {
+    if (!elt || typeof htmx === "undefined") {
+      return;
+    }
+    htmx.trigger(elt, "htmx:abort");
   }
 
   function closeDrawer() {
@@ -45,6 +65,7 @@
       restore.focus();
     }
     lastTrigger = null;
+    lastRun = null;
   }
 
   function copyLog(button) {
@@ -99,6 +120,24 @@
     }
     return copied;
   }
+
+  document.addEventListener("htmx:beforeSwap", function (event) {
+    // htmx dispatches htmx:beforeSwap on the swap target; the request origin
+    // (the log link) is carried in requestConfig.elt.
+    var requestElt = event.detail
+      && event.detail.requestConfig
+      && event.detail.requestConfig.elt;
+    if (!(requestElt && requestElt.closest && requestElt.closest("[data-log-open]"))) {
+      return;
+    }
+    // All log requests swap into the shared #log-drawer-body, so a response
+    // that no longer matches the run shown in the drawer (an abort that
+    // finished anyway, or a request orphaned by the periodic instance-panel
+    // refresh) must be discarded before it can replace the newer log.
+    if (runID(requestElt) !== lastRun) {
+      event.preventDefault();
+    }
+  });
 
   document.addEventListener("click", function (event) {
     var openLink = event.target.closest("[data-log-open]");

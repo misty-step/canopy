@@ -119,6 +119,51 @@ func TestHealthIsProcessLivenessOnly(t *testing.T) {
 	}
 }
 
+func TestLogLinksCarryRunIdentityForDrawer(t *testing.T) {
+	templates, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("load templates: %v", err)
+	}
+
+	selected := InstanceView{
+		ID:         "one",
+		Freshness:  "fresh",
+		LiveRuns:   []LiveRunViewModel{{RunID: "live-1", Agent: "builder"}},
+		RecentRuns: []RunViewModel{{RunID: "recent-1", ExitLabel: "exit 0", Status: "passed"}},
+	}
+	var instanceHTML bytes.Buffer
+	if err := templates.ExecuteTemplate(&instanceHTML, "instance.html", selected); err != nil {
+		t.Fatalf("render instance template: %v", err)
+	}
+	// Every drawer log link must identify its run so the viewer can abort the
+	// previous in-flight request and discard stale responses that arrive after
+	// a newer run was opened into the shared #log-drawer-body target.
+	for _, want := range []string{
+		`data-log-open data-log-run="live-1"`,
+		`data-log-open data-log-run="recent-1"`,
+		`hx-target="#log-drawer-body"`,
+	} {
+		if !strings.Contains(instanceHTML.String(), want) {
+			t.Fatalf("instance template missing %q", want)
+		}
+	}
+}
+
+func TestStaticCanopyJSGuardsStaleDrawerSwaps(t *testing.T) {
+	script, err := staticFiles.ReadFile("static/canopy.js")
+	if err != nil {
+		t.Fatalf("read embedded canopy.js: %v", err)
+	}
+	// The drawer must serialize log requests: opening a different run aborts
+	// the previous in-flight request, and a response for a run that is no
+	// longer open is discarded before it can swap into #log-drawer-body.
+	for _, want := range []string{"htmx:beforeSwap", "htmx:abort", "data-log-run"} {
+		if !bytes.Contains(script, []byte(want)) {
+			t.Fatalf("static/canopy.js missing %q", want)
+		}
+	}
+}
+
 func TestLogViewerTemplatesRenderDrawerAndCopyControl(t *testing.T) {
 	templates, err := loadTemplates()
 	if err != nil {
