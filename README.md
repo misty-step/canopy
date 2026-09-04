@@ -43,7 +43,7 @@ Canopy runs local discovery at startup and then every 5 seconds, with or without
 
 Each discovered instance derives a sanitized id and a title-case label from the unit or checkout name, uses the working directory as its root, and uses the resolved `forest` binary as its executable. Instances are sorted by id.
 
-Each successful discovery scan reconciles the working inventory. When discovery returns at least one instance, that result becomes the working set: a discovered id replaces any previous definition with the discovered one, and a previously known id that is absent from the result is removed.
+Each successful discovery scan reconciles the working inventory. When discovery returns at least one instance, only entries Canopy previously added by auto-discovery are refreshed or pruned: an auto-discovered id still present is replaced with the newly discovered definition, and an auto-discovered id that stops appearing is removed. Explicitly configured inventory entries are preserved and are not replaced or removed by discovery (see [Configuration precedence](#configuration-precedence)).
 
 ## Configuration precedence
 
@@ -53,7 +53,7 @@ Canopy resolves configuration in this order:
 2. `./canopy.json` — loaded when `-config` is not set and the file exists. A present but invalid default file is skipped.
 3. Zero-config discovery — when no inventory file is loaded, Canopy starts with an empty inventory. Discovery then runs at startup and periodically (see [Discovery](#discovery)).
 
-At startup, discovery is merged into the loaded inventory by appending discovered instances whose ids are not already configured, so a configured id is kept during that first merge. Once the app is running, the periodic discovery loop reconciles the working inventory from each scan: when discovery returns at least one instance, a discovered id replaces the previous definition for that id, and any previous id absent from the discovery result is removed. A configured instance that is also discovered is therefore replaced by the discovered definition, and a configured instance that is not locally discovered (for example a remote SSH instance) is removed from the working set at the next reconciliation. `-listen <host:port>` overrides the listen address from any source. Defaults are `127.0.0.1:8080` for the listener, 10 seconds for the fleet interval, and 2 seconds for the selected-instance interval.
+At startup, discovery is merged into the loaded inventory by appending discovered instances whose ids are not already configured, so a configured id is preserved and is not replaced by the discovered definition. During periodic reconciliation, when discovery returns at least one instance, only entries Canopy previously added by auto-discovery are refreshed or pruned: a still-present auto-discovered id is replaced with the newly discovered definition, and an auto-discovered id that stops appearing is removed. Explicitly configured inventory entries are never removed, and a discovered id that matches an explicitly configured id does not replace it. A configured instance that is not locally discovered (for example a remote SSH instance) therefore remains in the working set. `-listen <host:port>` overrides the listen address from any source. Defaults are `127.0.0.1:8080` for the listener, 10 seconds for the fleet interval, and 2 seconds for the selected-instance interval.
 
 ## Empty state
 
