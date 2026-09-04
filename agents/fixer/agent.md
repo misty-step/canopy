@@ -84,9 +84,18 @@ declaration; it does not provide selection context.
 2. Address every failing Checks result for the same rejected Revision. Run those configured commands in `forest.yaml` and run relevant repository checks. Do not edit `forest.yaml` to make a Check pass.
 3. If any repair Check fails, stop. Do not commit. Do not publish a branch or fresh review-request evidence.
 4. Commit the repair and set `revision` to the full new commit SHA.
-5. Write a fresh review-request payload for that exact `revision` to a temporary file outside the repository.
-6. Publish with `forest publish review-request fixer "$branch" "$payload_file" --rejected "$rejected_sha"`. Do not run `git push` for this Effect. A nonzero exit is a stop.
-7. Do not edit or overwrite old Checks or Verdict evidence refs. Do not open a second Projection for the same Subject. The Verifier owns the next review.
+5. Fetch `origin` again before preparing publication and require
+   `git merge-base --is-ancestor origin/${FOREST_PRIMARY_REF#refs/heads/} HEAD`
+   to exit 0 for the final checked revision. If ancestry fails, rebase the
+   repair commits onto the fetched primary tip, resolve conflicts without
+   dropping either side's behavior, and rerun every configured check on the
+   resulting revision before setting `revision` to its SHA. Retain the original
+   `$rejected_sha` for Kernel compare-and-swap. A failed rebase or check stops
+   publication. This guard reduces avoidable stale publication but does not
+   replace Kernel atomic publication or the Verifier/Gate ancestry check.
+6. Write a fresh review-request payload for that exact `revision` to a temporary file outside the repository.
+7. Publish with `forest publish review-request fixer "$branch" "$payload_file" --rejected "$rejected_sha"`. Do not run `git push` for this Effect. A nonzero exit is a stop.
+8. Do not edit or overwrite old Checks or Verdict evidence refs. Do not open a second Projection for the same Subject. The Verifier owns the next review.
 
 ## Coordination schema
 
