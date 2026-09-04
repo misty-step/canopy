@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,6 +28,8 @@ func DiscoverLocalInstances(ctx context.Context) ([]Instance, error) {
 			instances = append(instances, inst)
 		}
 	}
+
+	instances = resolveDiscoveryCollisions(instances, nil)
 
 	sort.Slice(instances, func(i, j int) bool {
 		return instances[i].ID < instances[j].ID
@@ -217,4 +220,86 @@ func formatLabel(id string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// resolveDiscoveryCollisions gives every discovered instance a distinct valid
+// identity without touching explicit inventory entries. Discovered roots that
+// already have an explicit entry for the same normalized root are omitted:
+// the explicit route is authoritative and the checkout must not appear as an
+// independently observed instance. Remaining discovered IDs that collide with
+// an explicit ID or with each other are suffixed with the smallest
+// discriminating counter ("-2", "-3", ...). Ordering is by normalized
+// root so repeated scans and input reorderings keep the same route-to-root
+// binding, and ordinary noncolliding IDs are preserved unchanged.
+func resolveDiscoveryCollisions(discovered []Instance, explicit []Instance) []Instance {
+	explicitIDs := make(map[string]struct{}, len(explicit))
+	explicitRoots := make(map[string]struct{}, len(explicit))
+	for _, inst := range explicit {
+		explicitIDs[inst.ID] = struct{}{}
+		if inst.Root != "" {
+			explicitRoots[filepath.Clean(inst.Root)] = struct{}{}
+		}
+	}
+
+	ordered := append([]Instance(nil), discovered...)
+	sort.Slice(ordered, func(i, j int) bool {
+		ri, rj := ordered[i].Root, ordered[j].Root
+		if ri != rj {
+			return ri < rj
+		}
+		if ordered[i].ID != ordered[j].ID {
+			return ordered[i].ID < ordered[j].ID
+		}
+		return ordered[i].Forest < ordered[j].Forest
+	})
+
+	used := make(map[string]struct{}, len(explicitIDs)+len(ordered))
+	for id := range explicitIDs {
+		used[id] = struct{}{}
+	}
+	seenRoots := make(map[string]struct{}, len(ordered))
+	resolved := make([]Instance, 0, len(ordered))
+	for _, inst := range ordered {
+		cleanRoot := inst.Root
+		if cleanRoot != "" {
+			cleanRoot = filepath.Clean(cleanRoot)
+		}
+		if _, conflict := explicitRoots[cleanRoot]; conflict {
+			continue
+		}
+		if _, duplicate := seenRoots[cleanRoot]; duplicate {
+			continue
+		}
+		base := inst.ID
+		if base == "" {
+			base = "instance"
+		}
+		candidate := base
+		if _, taken := used[candidate]; taken {
+			candidate = disambiguateID(base, used)
+		}
+		if candidate != inst.ID {
+			inst.ID = candidate
+			inst.Label = formatLabel(candidate)
+		}
+		used[candidate] = struct{}{}
+		seenRoots[cleanRoot] = struct{}{}
+		resolved = append(resolved, inst)
+	}
+	return resolved
+}
+
+// disambiguateID returns the smallest "base-N" variant that is unused and
+// remains a valid route identifier.
+func disambiguateID(base string, used map[string]struct{}) string {
+	for n := 2; ; n++ {
+		candidate := base + "-" + strconv.Itoa(n)
+		if _, taken := used[candidate]; taken {
+			continue
+		}
+		if validateRouteIdentifier(candidate, "instance id") != nil {
+			continue
+		}
+		return candidate
+	}
 }
