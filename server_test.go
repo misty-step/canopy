@@ -20,6 +20,61 @@ func testTemplates(t *testing.T) *template.Template {
 `))
 }
 
+func TestEmptyInventoryRendersEmptyStates(t *testing.T) {
+	templates, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	collector := &testCollector{}
+	collector.collect = func(context.Context, Instance) (Snapshot, error) {
+		t.Error("collector must not be called for empty-inventory rendering")
+		return Snapshot{}, errors.New("collector must not be called")
+	}
+	app := NewApp(Inventory{Instances: []Instance{}}, collector, templates)
+	tests := []struct {
+		name string
+		path string
+		want []string
+	}{
+		{
+			name: "page",
+			path: "/",
+			want: []string{
+				"No instances configured.",
+				"No instance selected",
+				"Add an instance to the inventory to begin observing it.",
+			},
+		},
+		{
+			name: "fleet fragment",
+			path: "/fragments/fleet",
+			want: []string{"No instances configured."},
+		},
+		{
+			name: "instance fragment",
+			path: "/fragments/instance",
+			want: []string{
+				"No instance selected",
+				"Add an instance to the inventory to begin observing it.",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("GET %s status=%d, want %d; body=%s", test.path, recorder.Code, http.StatusOK, recorder.Body.String())
+			}
+			for _, want := range test.want {
+				if !strings.Contains(recorder.Body.String(), want) {
+					t.Fatalf("GET %s body missing %q; body=%.500s", test.path, want, recorder.Body.String())
+				}
+			}
+		})
+	}
+}
+
 func TestHandlerRejectsUnknownInstance(t *testing.T) {
 	app := NewApp(testInventory(), &testCollector{}, testTemplates(t))
 	recorder := httptest.NewRecorder()
