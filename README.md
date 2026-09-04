@@ -39,7 +39,7 @@ go build -o canopy .
 Canopy runs local discovery at startup and then every 5 seconds, with or without an inventory file. Discovery finds local Iron Forest instances from two sources:
 
 - **systemd user units** named `forest@<name>.service`. Canopy reads each unit's `WorkingDirectory` and `ExecStart` and accepts the unit only when the working directory path contains a `/misty-step/` segment and the `ExecStart` binary is executable.
-- **Development checkouts** under `~/Development/misty-step`. A checkout is discovered when it contains both a `.forest` directory and an executable `./forest` binary.
+- **Development checkouts** under `~/Development/misty-step`. A checkout is discovered when it declares a `forest.yaml`, or when it is a legacy checkout with both a `.forest` directory and an executable repo-local `./forest` binary. When the repo-local `./forest` is missing or not executable, the Forest binary is resolved from `PATH`, then from the self-host Iron Forest factory checkout.
 
 Each discovered instance derives a sanitized id and a title-case label from the unit or checkout name, uses the working directory as its root, and uses the resolved `forest` binary as its executable. Instances are sorted by id.
 
