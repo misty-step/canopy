@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"flag"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -21,25 +22,40 @@ func loadTemplates() (*template.Template, error) {
 	return template.New("canopy").ParseFS(templateFiles, "templates/*.html")
 }
 
+// loadInventory resolves the explicit -config inventory, or the default
+// canopy.json when it exists as a regular file. An absent default preserves
+// zero-config discovery. Every load failure is wrapped with the shared
+// `load inventory:` startup boundary so a malformed default is as loud as an
+// explicit -config mistake.
+func loadInventory(configPath string) (Inventory, error) {
+	if configPath != "" {
+		loaded, err := LoadInventory(configPath)
+		if err != nil {
+			return Inventory{}, fmt.Errorf("load inventory: %w", err)
+		}
+		return loaded, nil
+	}
+	// A default canopy.json that exists as a file is explicit operator
+	// configuration and must fail loudly like -config; only an absent default
+	// preserves zero-config discovery.
+	if fi, err := os.Stat("canopy.json"); err == nil && !fi.IsDir() {
+		loaded, err := LoadInventory("canopy.json")
+		if err != nil {
+			return Inventory{}, fmt.Errorf("load inventory: %w", err)
+		}
+		return loaded, nil
+	}
+	return Inventory{}, nil
+}
+
 func main() {
 	configPath := flag.String("config", "", "optional path to the Canopy inventory JSON")
 	listenOverride := flag.String("listen", "", "override the inventory listen address")
 	flag.Parse()
 
-	var inventory Inventory
-	if *configPath != "" {
-		loaded, err := LoadInventory(*configPath)
-		if err != nil {
-			log.Fatalf("load inventory: %v", err)
-		}
-		inventory = loaded
-	} else {
-		// Try default canopy.json if it exists, otherwise start with zero config
-		if fi, err := os.Stat("canopy.json"); err == nil && !fi.IsDir() {
-			if loaded, err := LoadInventory("canopy.json"); err == nil {
-				inventory = loaded
-			}
-		}
+	inventory, err := loadInventory(*configPath)
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	if *listenOverride != "" {
