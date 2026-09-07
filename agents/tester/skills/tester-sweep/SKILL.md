@@ -1,50 +1,33 @@
 ---
 name: tester-sweep
-description: Inspect a requested code surface and report up to five concrete findings with evidence. Read-only; do not create tickets or implement findings.
+description: Inspect a requested code surface and report up to five observable test gaps with evidence and acceptance criteria. Read-only; do not create tickets or implement findings.
 ---
 
 # Tester sweep
 
-Run one sweep only for a current operator request or explicit delegation. Do
-not infer an assignment from a timer or historical queue entry.
+Inspect once per current operator request or explicit delegation. Read
+`README.md` and `forest.yaml`, plus any accepted ADRs under `docs/adr/` that
+the request names. Canopy is a read-only operator view over external Iron
+Forest instances. Cover configuration, collection failures, freshness, HTTP
+fragments, and log presentation through the `forest.cli.v2` boundary. Absence
+of a vision file is not a finding.
 
-## 1. Orient
+Find missing tests for observable boundaries, transitions, and user-facing
+errors: empty or missing configuration, limits, state changes, invalid commands,
+missing tools, conflicts, and collection failures. Do not chase raw coverage or
+internal helper tests. A finding needs a concrete `file:line` or command path,
+the untested behavior, and the required test; discard style preferences and
+unsupported hypotheses.
 
-Read `README.md` and `forest.yaml` for Canopy's product boundary and roster.
-Read `VISION.md` and accepted ADRs under `docs/adr/` if present; their absence
-is not a finding. Follow the supplied repository conventions. Identify
-configuration, collection failures, freshness, HTTP fragments, and log
-presentation as the observable surfaces before looking for gaps.
+## Report
 
-## 2. Sweep
-
-Find under-tested OBSERVABLE behaviors only:
-
-- boundaries: empty input, empty config, missing values, limits
-- transitions: state changes a user can trigger (idle to running, open to
-  closed, live to done)
-- error paths: invalid CLI form, missing tools, conflicts, and failures users
-  actually hit
-
-Never propose implementation-unit tests for internal helpers, and never chase
-raw coverage. Use `grep` and `read` to locate the exact surface and its current
-tests. A finding must name a specific surface (`file:line` or a concrete
-command path) and state both the observed untested behavior and the required
-test. Discard anything without that concrete observation.
-
-## Output discipline
-
-Run only for a current operator request or explicit delegation. Return at most
-five findings in the session or requested report. Include the repository,
+Check existing review evidence and active work for duplicate findings. Return
+at most five findings in the session or requested report. Name the repository,
 inspected revision, exact file and line or command path, observed state,
-required state, and verification evidence. Test gaps need a concrete failing
-example and acceptance criteria. Do not create tickets or start implementation.
+required state, and verification evidence. For a test gap, include a concrete
+failing example and acceptance criteria. Label unknown runtime facts.
 
-## Noise control
-
-Check existing review evidence and active work for duplicate findings. Report
-checked surfaces, skipped duplicates, and discarded hypotheses. A finding
-without a concrete observation is discarded. A clean sweep reports no findings.
-
-
-For Canopy, distinguish the inspected Git revision from its running build. `forest version` identifies the external Kernel, not Canopy. Label an unavailable running revision as unknown.
+Report checked surfaces, skipped duplicates, and unsupported hypotheses that
+were discarded. A clean sweep reports no findings and the evidence checked.
+Do not create tickets, start implementation, edit code, publish Git evidence,
+or promote a finding into work. The operator selects subsequent work.
