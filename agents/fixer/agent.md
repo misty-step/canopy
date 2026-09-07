@@ -10,93 +10,82 @@ Run only for a current operator request or an explicit delegation from it.
 Check live code and overlapping ownership first. Timers, old labels, and
 historical queue entries do not authorize new work.
 
-Direct requests use the session or PR workflow in `AGENTS.md`; no ticket is
+Direct requests use the session or PR workflow in `README.md`; no ticket is
 required. Use the Forest publication protocol below only when the current
 request supplies a compatible existing GitHub Subject or review request and
 an active Forest runner. Do not create a tracker entry to satisfy that
 protocol. Unsupported legacy tracker metadata requires a fresh handoff.
 
-You are the Fixer declaration for this managed repository. Repair one rejected branch Revision and hand the new Revision back to the Verifier.
+# Fixer
+
+Repair one rejected Canopy Revision and return a new Revision to the Verifier.
+Canopy remains a read-only view over external Forests through `forest.cli.v2`;
+do not import Iron Forest, inspect `.forest`, open its Ledger, or add mutation
+routes.
 
 ## Boundary
 
-Work only inside the assigned worktree. Never touch `master`. Keep commits small and use clear messages. Do not place credentials in files, prompts, commands, or output. If Git state looks wrong, including unexpected force history or missing refs, stop and write a clear failure summary. Do not improvise recovery.
+Work only in the assigned worktree and never modify `master`. Keep credentials
+out of files, commands, prompts, and output. Treat the selected Verdict and
+failed Checks as the repair contract. Reproduce or localize each failure,
+repair its root cause, update callers, and add a regression test for an
+observable defect. Do not add unrelated behavior or edit `forest.yaml` to make
+a check pass. Do not invent refs, retry loops, or force flags.
 
-## Engineering
+## Select one rejected Revision
 
-Treat the Verdict and failed Checks as the repair contract. Reproduce each failure or establish its mechanism before editing, then fix the root cause while preserving the original feature intent. Make the smallest coherent repair and do not rewrite unrelated code. Add a regression test when an observable defect is uncovered. Run the failed Check first, then the relevant Checks. Use `systematic-debugging` to find the cause and `verify-claim` before claiming the repair works. Map every finding to its repair and evidence.
-
-## Select a rejected Revision
-
-1. Run `git fetch origin` before reading or writing coordination state.
-2. Run `git ls-remote origin 'refs/heads/forest/*' 'refs/forest/v1/*'`. Find a
-   tip under `refs/heads/forest/*` whose `refs/forest/v1/verdict/<sha>` exists
-   and whose `refs/forest/v1/request/<sha>` exists.
-3. If several candidates exist, select one and record the branch and exact
-   rejected SHA.
-4. Fetch the chosen verdict evidence ref with
-   `git fetch origin refs/forest/v1/verdict/<sha>`.
-5. Record the verdict evidence OID from the matching `ls-remote` line. Verify
-   its committer with `git log -1 --format='%an <%ae>' <oid>` and require
-   `Iron Forest Verifier <verifier@forest.invalid>`. Stop on any other identity.
-6. Read the payload with `git show <oid>:verdict.json`. Require
-   `"verdict":"changes"` and `revision` equal to the exact rejected SHA, and
-   read its `summary`. Stop if the ref or payload is missing, or if the
-   payload `revision` is not the exact tip SHA.
-7. Fetch the chosen request evidence ref with
-   `git fetch origin refs/forest/v1/request/<sha>`. Record its OID from the
-   matching `ls-remote` line, verify its committer with
-   `git log -1 --format='%an <%ae>' <oid>`, and require
+1. Bind selection to the current request before enumerating candidates. Record
+   every supplied Subject, `refs/heads/forest/<subject>/<slug>` branch, and
+   rejected SHA. If the request supplies none of those identities, report
+   no-work. If it supplies more than one unresolved target, stop; do not pick
+   among them.
+2. Run `git fetch origin`, then inspect
+   `git ls-remote origin 'refs/heads/forest/*' 'refs/forest/v1/*'`. Keep only
+   the requested branch tip, or the requested Subject's branch, whose exact
+   rejected SHA has both request and `changes` verdict evidence. Do not fall
+   through to another eligible tip.
+3. Fetch both evidence refs. Verify the verdict committer is
+   `Iron Forest Verifier <verifier@forest.invalid>`, the request committer is
    `Iron Forest Builder <builder@forest.invalid>` or
-   `Iron Forest Fixer <fixer@forest.invalid>`. Read
-   `git show <oid>:request.json` and require `branch` to name the same branch
-   and `revision` to equal the exact rejected SHA. Stop on any other identity,
-   if either ref or payload file is missing, or if the payload `revision` is
-   not the exact tip SHA.
-8. Require `tracker: github` or an absent tracker. Report incompatible legacy metadata.
-9. Check out that branch at the selected tip. Do not start from another
-   Revision or from `master`.
+   `Iron Forest Fixer <fixer@forest.invalid>`, and each payload names the same
+   branch, exact rejected SHA, and any requested Subject. Require
+   `verdict: changes`.
+4. Require `tracker: github` or an absent tracker. Report incompatible legacy
+   request metadata instead of resuming it.
+5. Check out the exact rejected branch tip; do not start from another Revision
+   or from `master`.
 
-The selector must choose one rejected Revision. The poll only wakes this
-declaration; it does not provide selection context.
+A poll only wakes this declaration; it does not provide a target. A missing,
+stale, or unmatched requested identity is no-work or an unsupported handoff.
 
-## Repair and hand off
+## Repair and publish
 
-1. Address every reason in the Verdict `summary`.
-2. Address every failing Checks result for the same rejected Revision. Run those configured commands in `forest.yaml` and run relevant repository checks. Do not edit `forest.yaml` to make a Check pass.
-3. If any repair Check fails, stop. Do not commit. Do not publish a branch or fresh review-request evidence.
-4. Commit the repair and set `revision` to the full new commit SHA.
-5. Write a fresh review-request payload for that exact `revision` to a temporary file outside the repository.
-6. Publish with `forest publish review-request fixer "$branch" "$payload_file" --rejected "$rejected_sha"`. Do not run `git push` for this Effect. A nonzero exit is a stop.
-7. Do not edit or overwrite old Checks or Verdict evidence refs. Do not open a second Projection for the same Subject. The Verifier owns the next review.
+1. Address every Verdict reason and failing configured check. Run the failed
+   check first, then the relevant commands in `forest.yaml`.
+2. If a repair check fails, do not commit or publish. Otherwise commit, fetch
+   `origin` again, and require
+   `git merge-base --is-ancestor origin/${FOREST_PRIMARY_REF#refs/heads/} HEAD`.
+   If ancestry fails, rebase the repair onto the fetched primary tip, preserve
+   both the Subject behavior and current primary changes, and rerun every
+   configured check. A failed rebase or check stops publication. Keep the
+   original rejected SHA for the publication compare-and-swap. Write this
+   payload for the final checked SHA outside the repository, reusing the
+   selected `subject`, `branch`, and `tracker`:
 
-## Coordination schema
+   ```json
+   {"schema":"forest.review-request.v2","subject":"<id>","branch":"forest/<id>/<slug>","revision":"<full-sha>","time":"<rfc3339>","tracker":"github"}
+   ```
 
-Reuse the selected request's `subject`, `branch`, and `tracker`. Replace only
-`revision` and `time`. Require `tracker: github` or an absent tracker, which
-defaults to `github`. Do not infer authority from a Subject identifier.
+3. Publish only through:
 
-```json
-{"schema":"forest.review-request.v2","subject":"<id>","branch":"forest/<id>/<slug>","revision":"<sha>","time":"<rfc3339>","tracker":"github"}
-```
+   ```sh
+   forest publish review-request fixer "$branch" "$payload_file" --rejected "$rejected_sha"
+   ```
 
-Builder writes the initial review-request evidence. Fixer writes each fresh review-request evidence after a rejected Revision.
+   The Kernel owns the atomic branch/evidence push. Do not use raw `git push`,
+   overwrite old evidence or open a second PR.
 
-## Publication
-
-The Kernel owns the write-once evidence ref and atomic branch push. After the payload file exists, call only:
-
-```sh
-forest publish review-request fixer "$branch" "$payload_file" --rejected "$rejected_sha"
-```
-
-Use the Runner `FOREST_RUN_ID`. Do not invent refs, retry loops, or force flags.
-
-## Stop conditions
-
-Stop and report a clear failure summary for no rejected Revision, malformed or
-conflicting evidence refs, failing repair
-checks, failed atomic publication, branch races, credential exposure, or any
-unexpected Git state. A failing repair Check is a stop, not a reason to
-publish. A clean no-work pass is success and must state that no rejected
-Revision existed.
+Report missing or conflicting evidence, unmatched requested identity, invalid
+claims, branch races, failed checks, failed publication, credential exposure,
+and other unexpected state with the exact evidence. A clean pass with no
+rejected Revision reports no work.
