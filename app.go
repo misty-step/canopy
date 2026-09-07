@@ -251,6 +251,17 @@ func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	// Explicit entries stay authoritative: discovered roots already covered
+	// by an explicit route are omitted, and colliding discovered IDs are
+	// renamed before any worker/state reconciliation.
+	explicit := make([]Instance, 0, len(a.inventory.Instances))
+	for _, existing := range a.inventory.Instances {
+		if _, wasDiscovered := a.discovered[existing.ID]; !wasDiscovered {
+			explicit = append(explicit, existing)
+		}
+	}
+	discovered = resolveDiscoveryCollisions(discovered, explicit)
+
 	discMap := make(map[string]Instance, len(discovered))
 	for _, disc := range discovered {
 		discMap[disc.ID] = disc

@@ -166,3 +166,100 @@ func TestScanDevelopmentRootPrefersPathForestBinary(t *testing.T) {
 		t.Errorf("Forest = %q, want PATH binary %q", inst.Forest, pathForest)
 	}
 }
+
+func TestResolveDiscoveryCollisionsRetainsCollidingSiblings(t *testing.T) {
+	if sanitizeID("agent_test") != sanitizeID("agent-test") {
+		t.Fatalf("sanitizeID(agent_test)=%q, sanitizeID(agent-test)=%q, want collision", sanitizeID("agent_test"), sanitizeID("agent-test"))
+	}
+	if sanitizeID("agent_test") == sanitizeID("agent-beta") {
+		t.Fatalf("sanitizeID(agent_test)=%q must not collide with agent-beta", sanitizeID("agent_test"))
+	}
+
+	// Use sibling roots under one parent so the lexicographic route order is
+	// determined by the colliding leaf names ("-" sorts before "_").
+	parent := t.TempDir()
+	rootUnderscore := filepath.Join(parent, "agent_test")
+	rootDash := filepath.Join(parent, "agent-test")
+	colliding := []Instance{
+		{ID: sanitizeID("agent_test"), Label: formatLabel(sanitizeID("agent_test")), Root: rootUnderscore, Forest: "forest"},
+		{ID: sanitizeID("agent-test"), Label: formatLabel(sanitizeID("agent-test")), Root: rootDash, Forest: "forest"},
+	}
+
+	resolved := resolveDiscoveryCollisions(colliding, nil)
+	if len(resolved) != 2 {
+		t.Fatalf("resolved %d instances, want 2: %+v", len(resolved), resolved)
+	}
+	byRoot := make(map[string]Instance, 2)
+	for _, inst := range resolved {
+		byRoot[inst.Root] = inst
+		if err := validateRouteIdentifier(inst.ID, "instance id"); err != nil {
+			t.Errorf("resolved ID %q is not a valid route identifier: %v", inst.ID, err)
+		}
+	}
+	if byRoot[rootUnderscore].ID == byRoot[rootDash].ID {
+		t.Fatalf("colliding roots share ID %q: %+v", byRoot[rootUnderscore].ID, resolved)
+	}
+	// The lexicographically smaller root keeps the base ID; the other takes
+	// the smallest discriminating counter.
+	if byRoot[rootDash].ID != "agent-test" {
+		t.Errorf("root agent-test ID=%q, want base agent-test", byRoot[rootDash].ID)
+	}
+	if byRoot[rootUnderscore].ID != "agent-test-2" {
+		t.Errorf("root agent_test ID=%q, want agent-test-2", byRoot[rootUnderscore].ID)
+	}
+
+	reversed := []Instance{colliding[1], colliding[0]}
+	resolvedReversed := resolveDiscoveryCollisions(reversed, nil)
+	if len(resolvedReversed) != 2 {
+		t.Fatalf("reordered resolved %d instances, want 2", len(resolvedReversed))
+	}
+	byRootReordered := make(map[string]string, 2)
+	for _, inst := range resolvedReversed {
+		byRootReordered[inst.Root] = inst.ID
+	}
+	for root, id := range byRoot {
+		if byRootReordered[root] != id.ID {
+			t.Fatalf("reordered scan changed binding for %s: %q vs %q", root, byRootReordered[root], id.ID)
+		}
+	}
+}
+
+func TestScanDevelopmentRootCollidingCheckoutsResolveToDistinctIDs(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	parent := t.TempDir()
+	factory := filepath.Join(parent, "iron-forest")
+	if err := os.MkdirAll(factory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(factory, "forest"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"agent_test", "agent-test"} {
+		repo := filepath.Join(parent, name)
+		if err := os.MkdirAll(repo, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "forest.yaml"), []byte("repo: misty-step/"+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := make(map[string]Instance)
+	scanDevelopmentRoot(parent, out)
+	if len(out) != 2 {
+		t.Fatalf("discovered %d checkouts, want 2 colliding siblings: %v", len(out), out)
+	}
+	var colliding []Instance
+	for _, inst := range out {
+		if inst.ID == "agent-test" {
+			colliding = append(colliding, inst)
+		}
+	}
+	if len(colliding) != 2 {
+		t.Fatalf("colliding checkout IDs=%+v, want two agent-test entries before resolution", out)
+	}
+	resolved := resolveDiscoveryCollisions(colliding, nil)
+	if len(resolved) != 2 || resolved[0].ID == resolved[1].ID {
+		t.Fatalf("resolved colliding checkouts=%+v, want two distinct IDs", resolved)
+	}
+}
