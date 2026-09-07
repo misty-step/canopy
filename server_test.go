@@ -21,6 +21,50 @@ func testTemplates(t *testing.T) *template.Template {
 `))
 }
 
+func TestInitialCollectionFailureRendersUnknown(t *testing.T) {
+	templates, err := loadTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	offline := errors.New("first collection offline")
+	collector := &testCollector{collect: func(context.Context, Instance) (Snapshot, error) {
+		return Snapshot{}, offline
+	}}
+	inventory := testInventory()
+	app := NewApp(inventory, collector, templates)
+	app.refreshOnce(context.Background(), inventory.Instances[0])
+	state, _ := app.state("one")
+	if state.Snapshot != nil || !state.LastSuccess.IsZero() || state.LastAttempt.IsZero() || !errors.Is(state.Err, offline) {
+		t.Fatalf("first failure state=%+v", state)
+	}
+	view := app.pageView("one", state.LastAttempt).Selected
+	if view.Reachable || view.Freshness != string(Unknown) {
+		t.Fatalf("first failure reachable=%t freshness=%s", view.Reachable, view.Freshness)
+	}
+	if want := "attempted " + formatTime(state.LastAttempt); view.LastObserved != want {
+		t.Fatalf("first failure last observed=%q, want %q", view.LastObserved, want)
+	}
+	if len(view.Errors) != 1 || view.Errors[0] != offline.Error() {
+		t.Fatalf("first failure errors=%q, want %q", view.Errors, offline.Error())
+	}
+	recorder := httptest.NewRecorder()
+	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/fragments/instance?instance=one", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{`class="status-badge unknown"`, "attempted " + formatTime(state.LastAttempt), offline.Error(), `id="waiting-title"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("fragment lacks %q", want)
+		}
+	}
+	for _, stale := range []string{`>fresh<`, `>stale<`} {
+		if strings.Contains(body, stale) {
+			t.Errorf("fragment shows %q classification, want unknown only", stale)
+		}
+	}
+}
+
 func TestHandlerRejectsUnknownInstance(t *testing.T) {
 	app := NewApp(testInventory(), &testCollector{}, testTemplates(t))
 	recorder := httptest.NewRecorder()
