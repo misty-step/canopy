@@ -9,11 +9,14 @@ import (
 // Instance identifies one independent Iron Forest checkout. Host is empty for
 // a local checkout; otherwise it is the SSH destination used to execute Forest.
 type Instance struct {
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	Host   string `json:"host,omitempty"`
-	Root   string `json:"root"`
-	Forest string `json:"forest"`
+	ID               string        `json:"id"`
+	Label            string        `json:"label"`
+	Host             string        `json:"host,omitempty"`
+	Root             string        `json:"root"`
+	Forest           string        `json:"forest"`
+	ObserverURL      string        `json:"observer_url,omitempty"`
+	ObserverTokenEnv string        `json:"observer_token_env,omitempty"`
+	Sources          TicketSources `json:"sources,omitempty"`
 }
 
 // Inventory is Canopy's process configuration. Intervals are seconds and are
@@ -60,6 +63,8 @@ type Snapshot struct {
 	Config       ConfigData        `json:"config"`
 	Status       StatusData        `json:"status"`
 	Declarations []DeclarationData `json:"declarations"`
+	History      RunHistory        `json:"history"`
+	Delivery     DeliverySources   `json:"delivery"`
 }
 
 // LogResult is the machine-readable result of `forest run logs --json`.
@@ -171,27 +176,32 @@ type AuditData struct {
 // RunData mirrors one historical Ledger row, including all five retained token
 // classes and the optional recorded failure reason.
 type RunData struct {
-	RunID         string  `json:"run_id"`
-	Agent         string  `json:"agent"`
-	Started       string  `json:"started"`
-	Duration      float64 `json:"duration"`
-	Exit          int     `json:"exit"`
-	TokensIn      int64   `json:"tokens_in"`
-	TokensOut     int64   `json:"tokens_out"`
-	CacheRead     int64   `json:"cache_read"`
-	CacheWrite    int64   `json:"cache_write"`
-	Reasoning     int64   `json:"reasoning"`
-	Error         string  `json:"error,omitempty"`
-	DefinitionSHA string  `json:"definition_sha,omitempty"`
+	RunID         string   `json:"run_id"`
+	Agent         string   `json:"agent"`
+	RequestID     string   `json:"request_id,omitempty"`
+	Work          *WorkRef `json:"work,omitempty"`
+	Started       string   `json:"started"`
+	Duration      float64  `json:"duration"`
+	Exit          int      `json:"exit"`
+	NoWork        bool     `json:"no_work,omitempty"`
+	TokensIn      int64    `json:"tokens_in"`
+	TokensOut     int64    `json:"tokens_out"`
+	CacheRead     int64    `json:"cache_read"`
+	CacheWrite    int64    `json:"cache_write"`
+	Reasoning     int64    `json:"reasoning"`
+	Error         string   `json:"error,omitempty"`
+	DefinitionSHA string   `json:"definition_sha,omitempty"`
 }
 
 // LiveRunData mirrors one currently running Run.
 type LiveRunData struct {
-	RunID     string `json:"run_id"`
-	Agent     string `json:"agent"`
-	StartedAt string `json:"started_at"`
-	Elapsed   string `json:"elapsed"`
-	Cancel    string `json:"cancel"`
+	RunID     string   `json:"run_id"`
+	Agent     string   `json:"agent"`
+	RequestID string   `json:"request_id,omitempty"`
+	Work      *WorkRef `json:"work,omitempty"`
+	StartedAt string   `json:"started_at"`
+	Elapsed   string   `json:"elapsed"`
+	Cancel    string   `json:"cancel"`
 }
 
 // AgentLedgerData is the whole-Ledger aggregate for one historical agent. An

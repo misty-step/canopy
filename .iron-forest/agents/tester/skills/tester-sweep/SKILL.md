@@ -6,7 +6,7 @@ description: Inspect a requested code surface and report up to five observable t
 # Tester sweep
 
 Inspect once per current operator request or explicit delegation. Read
-`README.md` and `forest.yaml`, plus any accepted ADRs under `docs/adr/` that
+`README.md` and `.iron-forest/config.yaml`, plus any accepted ADRs under `docs/adr/` that
 the request names. Canopy is a read-only operator view over external Iron
 Forest instances. Cover configuration, collection failures, freshness, HTTP
 fragments, and log presentation through the `forest.cli.v2` boundary. Absence

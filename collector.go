@@ -79,6 +79,9 @@ func (processCommandRunner) Run(ctx context.Context, instance Instance, args []s
 	if err := validateInstance(instance); err != nil {
 		return CommandResult{Exit: -1}, err
 	}
+	if instance.ObserverURL != "" {
+		return observeCommand(ctx, instance, args)
+	}
 	var command *exec.Cmd
 	if instance.Host == "" {
 		command = exec.CommandContext(ctx, instance.Forest, args...)
@@ -225,6 +228,7 @@ func (c *cliCollector) Collect(ctx context.Context, instance Instance) (Snapshot
 	if err := decodeCommandData(statusRaw, "status", &snapshot.Status); err != nil {
 		return Snapshot{}, err
 	}
+	snapshot.History = c.collectRunHistory(ctx, instance)
 	return snapshot, nil
 }
 

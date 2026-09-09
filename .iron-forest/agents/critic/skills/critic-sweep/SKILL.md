@@ -6,10 +6,10 @@ description: Inspect a requested code surface and report up to five concrete fin
 # Critic sweep
 
 Inspect once per current operator request or explicit delegation. Read
-`README.md` and `forest.yaml`, plus any accepted ADRs under `docs/adr/` that
+`README.md` and `.iron-forest/config.yaml`, plus any accepted ADRs under `docs/adr/` that
 the request names. Canopy is a read-only operator view over external Iron
-Forest instances: use the `forest.cli.v2` boundary and do not inspect
-`.forest` data. Absence of a vision file is not a finding.
+Forest instances: use the `forest.cli.v2` boundary and configured read-only
+source APIs; do not inspect `.iron-forest/runtime` data. Absence of a vision file is not a finding.
 
 Check for architecture drift, dead or stale paths and docs, mixed ownership,
 convention violations, and missing tests for observable behavior or failure

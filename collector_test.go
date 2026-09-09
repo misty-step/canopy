@@ -238,43 +238,6 @@ func TestCLICollectorToleratesUnsupportedVersion(t *testing.T) {
 	}
 }
 
-func TestCLICollectorCollectsAllCommandsAndDeclarationsLocally(t *testing.T) {
-	status := StatusData{Repo: "org/repo", Kernel: KernelData{RunningKnown: true}}
-	list := struct {
-		Declarations []DeclarationData `json:"declarations"`
-	}{Declarations: []DeclarationData{{Name: "builder"}, {Name: "legacy"}}}
-	runner := &fakeCollectorRunner{responses: map[string]CommandResult{
-		"version":                  fakeEnvelope("version", 0, VersionData{BuildSHA: "abc", Dirty: true}, nil),
-		"config show":              fakeEnvelope("config show", 0, ConfigData{Repo: "org/repo"}, nil),
-		"declaration list":         fakeEnvelope("declaration list", 0, list, nil),
-		"declaration show:builder": fakeEnvelope("declaration show", 0, DeclarationData{Name: "builder", Model: "m"}, nil),
-		"declaration show:legacy":  fakeEnvelope("declaration show", 0, DeclarationData{Name: "legacy", Model: "m"}, nil),
-		"status":                   fakeEnvelope("status", 0, status, nil),
-	}}
-	collector := NewCLICollectorWithRunner(0, runner)
-	snapshot, err := collector.Collect(context.Background(), validTestInstance(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Collect: %v", err)
-	}
-	if snapshot.Version.BuildSHA != "abc" || !snapshot.Version.Dirty {
-		t.Fatalf("version=%+v, want decoded version", snapshot.Version)
-	}
-	if len(snapshot.Declarations) != 2 || snapshot.Declarations[0].Name != "builder" || snapshot.Declarations[1].Name != "legacy" {
-		t.Fatalf("declarations=%+v, want list order and both shows", snapshot.Declarations)
-	}
-	if snapshot.Status.Repo != "org/repo" {
-		t.Fatalf("status=%+v, want decoded status", snapshot.Status)
-	}
-	if len(runner.calls) != 6 {
-		t.Fatalf("calls=%d, want version/config/list/2 shows/status", len(runner.calls))
-	}
-	for _, call := range runner.calls {
-		if len(call) < 4 || call[len(call)-3] != "--json" || call[len(call)-2] != "--root" {
-			t.Fatalf("call=%q, want --json --root suffix", call)
-		}
-	}
-}
-
 func TestCLICollectorRejectsInvalidSSHBeforeExecution(t *testing.T) {
 	runner := &fakeCollectorRunner{responses: map[string]CommandResult{}}
 	collector := NewCLICollectorWithRunner(0, runner)

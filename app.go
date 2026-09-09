@@ -190,6 +190,7 @@ func (a *App) refreshOnce(parent context.Context, instance Instance) {
 		a.states[instance.ID] = state
 	}
 	state.LastAttempt = attempt
+	previous := state.Snapshot
 	a.mu.Unlock()
 
 	if a.collector == nil {
@@ -203,6 +204,20 @@ func (a *App) refreshOnce(parent context.Context, instance Instance) {
 	}
 	ctx, cancel = context.WithTimeout(ctx, refreshTimeout)
 	snapshot, err := a.collector.Collect(ctx, instance)
+	if err == nil {
+		snapshot.Instance = instance
+		var previousSources DeliverySources
+		if previous != nil {
+			snapshot.History = retainRunHistory(snapshot.History, previous.History)
+			previousSources = previous.Delivery
+		}
+		if !previousSources.AttemptedAt.IsZero() && attempt.Before(previousSources.AttemptedAt.Add(sourceRefreshInterval)) {
+			snapshot.Delivery = previousSources
+		} else {
+			snapshot.Delivery = newSourceReader().collect(ctx, snapshot, previousSources)
+			snapshot.Delivery.AttemptedAt = attempt
+		}
+	}
 	cancel()
 	a.recordRefresh(instance.ID, &snapshot, err)
 }

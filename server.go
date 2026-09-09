@@ -203,8 +203,9 @@ func isUnknownRunError(err error) bool {
 	var cliErr *CLIError
 	return errors.As(err, &cliErr) && cliErr != nil && cliErr.Exit == 4
 }
+
 var (
-	keyPattern = regexp.MustCompile(`(?i)(keys/|key[_-]?id[=:]|token[=:]|bearer\s+|api[_-]?key[=:])([a-zA-Z0-9_\-\.]{12,})`)
+	keyPattern    = regexp.MustCompile(`(?i)(keys/|key[_-]?id[=:]|token[=:]|bearer\s+|api[_-]?key[=:])([a-zA-Z0-9_\-\.]{12,})`)
 	bearerPattern = regexp.MustCompile(`(?i)sk-[a-zA-Z0-9_\-]{20,}`)
 )
 
@@ -216,7 +217,6 @@ func sanitizeLogText(text string) string {
 	res = bearerPattern.ReplaceAllString(res, "[REDACTED]")
 	return res
 }
-
 
 func requireGet(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method == http.MethodGet {

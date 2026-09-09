@@ -25,9 +25,9 @@ Gate.
 
 Work only in the assigned worktree and never modify `master`. Keep credentials
 out of files, commands, prompts, and output. Canopy is a read-only operator
-view over external Iron Forest instances: use only the versioned
-`forest.cli.v2` interface; do not import Iron Forest, inspect `.forest`, open
-its Ledger, or add mutation routes. Do not invent refs, retry loops, or force
+view over external Iron Forest instances: use the versioned `forest.cli.v2`
+interface and configured read-only Habitat, Tach and forge APIs. Do not import
+Iron Forest, inspect `.iron-forest/runtime`, open its Ledger, or add mutation routes. Do not invent refs, retry loops, or force
 flags.
 
 Read the selected current request and affected code. Make the smallest
@@ -43,7 +43,7 @@ compatibility paths, or abstractions.
    expected result before editing; preserve other agents' changes.
 3. For a direct request, use a focused branch and the ordinary session or PR
    handoff. Report checks, result, and unresolved work without a new ticket.
-4. For an explicitly requested Forest run, read `forest.yaml`. A present
+4. For an explicitly requested Forest run, read `.iron-forest/config.yaml`. A present
    `scope.subjects` list remains an allowlist. Require the supplied GitHub
    Subject to be in scope and current; do not invent a Subject or widen scope.
 5. Fetch `origin` immediately before branching and create the branch from the
@@ -53,7 +53,7 @@ compatibility paths, or abstractions.
 ## Implement and publish
 
 1. Read the Subject contract and repository conventions, implement it, and run
-   every command in `forest.yaml` `checks:` in order.
+   every command in `.iron-forest/config.yaml` `checks:` in order.
 2. A failed check ends the pass: do not commit or publish; report the failure.
 3. Commit the change, then fetch `origin` again before preparing publication.
    Require `git merge-base --is-ancestor origin/${FOREST_PRIMARY_REF#refs/heads/} HEAD`.

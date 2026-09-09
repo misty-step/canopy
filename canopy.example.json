@@ -7,14 +7,14 @@
       "id": "local",
       "label": "Local Forest",
       "root": "/absolute/path/to/iron-forest",
-      "forest": "/absolute/path/to/iron-forest/forest"
+      "forest": "/absolute/path/to/iron-forest/.iron-forest/bin/forest"
     },
     {
       "id": "remote",
       "label": "Remote Forest",
       "host": "operator@example.org",
       "root": "/srv/iron-forest",
-      "forest": "/usr/local/bin/forest"
+      "forest": "/srv/iron-forest/.iron-forest/bin/forest"
     }
   ]
 }

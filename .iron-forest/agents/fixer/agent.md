@@ -20,7 +20,7 @@ protocol. Unsupported legacy tracker metadata requires a fresh handoff.
 
 Repair one rejected Canopy Revision and return a new Revision to the Verifier.
 Canopy remains a read-only view over external Forests through `forest.cli.v2`;
-do not import Iron Forest, inspect `.forest`, open its Ledger, or add mutation
+do not import Iron Forest, inspect `.iron-forest/runtime`, open its Ledger, or add mutation
 routes.
 
 ## Boundary
@@ -29,7 +29,7 @@ Work only in the assigned worktree and never modify `master`. Keep credentials
 out of files, commands, prompts, and output. Treat the selected Verdict and
 failed Checks as the repair contract. Reproduce or localize each failure,
 repair its root cause, update callers, and add a regression test for an
-observable defect. Do not add unrelated behavior or edit `forest.yaml` to make
+observable defect. Do not add unrelated behavior or edit `.iron-forest/config.yaml` to make
 a check pass. Do not invent refs, retry loops, or force flags.
 
 ## Select one rejected Revision
@@ -61,7 +61,7 @@ stale, or unmatched requested identity is no-work or an unsupported handoff.
 ## Repair and publish
 
 1. Address every Verdict reason and failing configured check. Run the failed
-   check first, then the relevant commands in `forest.yaml`.
+   check first, then the relevant commands in `.iron-forest/config.yaml`.
 2. If a repair check fails, do not commit or publish. Otherwise commit, fetch
    `origin` again, and require
    `git merge-base --is-ancestor origin/${FOREST_PRIMARY_REF#refs/heads/} HEAD`.

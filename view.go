@@ -36,6 +36,7 @@ type InstanceView struct {
 	LedgerPassRate                                          string
 	Config                                                  ConfigViewModel
 	Errors                                                  []string
+	Delivery                                                TicketDeliveryView
 }
 
 type AuditView struct {
@@ -232,6 +233,7 @@ func instanceView(instance Instance, state InstanceState, selected bool, now tim
 	view.LiveRuns = liveRunViews(snapshot.Status.LiveRuns)
 	view.ActiveRuns = len(view.LiveRuns)
 	view.RecentRuns = runViews(snapshot.Status.Recent)
+	view.Delivery = ticketDeliveryView(*snapshot, view.Freshness != string(Fresh), now, maxAge)
 	if snapshot.Status.Ledger != nil {
 		view.HasLedger = true
 		view.LedgerRuns = snapshot.Status.Ledger.Runs
@@ -379,14 +381,17 @@ func runViews(runs []RunData) []RunViewModel {
 }
 
 func runView(run RunData) RunViewModel {
-	status := "passed"
-	if run.Exit != 0 {
-		status = "failed"
+	status, exitLabel := "skipped", "no work"
+	if !run.NoWork {
+		status, exitLabel = "passed", fmt.Sprintf("exit %d", run.Exit)
+		if run.Exit != 0 {
+			status = "failed"
+		}
 	}
 	return RunViewModel{
 		RunID: run.RunID, Agent: run.Agent, Started: run.Started,
 		DurationSeconds: run.Duration, Duration: formatDuration(run.Duration), Exit: run.Exit,
-		ExitLabel: fmt.Sprintf("exit %d", run.Exit), Status: status, Error: run.Error,
+		ExitLabel: exitLabel, Status: status, Error: run.Error,
 		TokensIn: run.TokensIn, TokensOut: run.TokensOut, CacheRead: run.CacheRead,
 		CacheWrite: run.CacheWrite, Reasoning: run.Reasoning, DefinitionSHA: run.DefinitionSHA,
 	}

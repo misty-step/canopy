@@ -1,0 +1,12 @@
+repo: misty-step/canopy
+agents:
+  builder:  { poll: "./.iron-forest/bin/forest poll builder",  interval: 300 }
+  verifier: { poll: "./.iron-forest/bin/forest poll verifier", interval: 120 }
+  fixer:    { poll: "./.iron-forest/bin/forest poll fixer",    interval: 300 }
+  critic:   { poll: "./.iron-forest/agents/critic/poll.sh", interval: 86400 }
+  tester:   { poll: "./.iron-forest/agents/tester/poll.sh", interval: 86400 }
+checks:
+  - name: test
+    run: go test ./...
+  - name: vet
+    run: go vet ./...

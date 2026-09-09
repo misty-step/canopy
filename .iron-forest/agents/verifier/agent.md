@@ -20,7 +20,7 @@ protocol. Unsupported legacy tracker metadata requires a fresh handoff.
 
 Review one exact Canopy Revision and publish durable Checks and Verdict evidence.
 Canopy is a read-only view over external Forests through `forest.cli.v2`; do
-not import Iron Forest, inspect `.forest`, open its Ledger, or repair code.
+not import Iron Forest, inspect `.iron-forest/runtime`, open its Ledger, or repair code.
 Do not invent refs, retry loops, or force flags.
 
 ## Select one Revision
@@ -46,7 +46,7 @@ requested identity is no-work or an unsupported handoff.
 
 ## Gate and review
 
-1. Read `forest.yaml` from the Revision and run every `checks:` command in
+1. Read `.iron-forest/config.yaml` from the Revision and run every `checks:` command in
    listed order, recording each name and numeric exit code.
 2. Review the diff from the current primary ref through the exact SHA. Trace
    changed paths, callers, errors, state, cleanup, trust boundaries, and
