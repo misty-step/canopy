@@ -83,6 +83,25 @@ func TestDeliveryDeduplicatesReopenedServedWorkWithoutChargingCreatedLinks(t *te
 	}
 }
 
+func TestReopenedWorkDoesNotIncreaseFirstDeliveryCost(t *testing.T) {
+	snapshot := deliveryFixture()
+	snapshot.History.Runs[1].Started = "2026-09-08T09:20:00Z"
+	snapshot.Status.Recent = nil
+	view := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if view.USD != "$0.03000000" || view.FirstDeliveryUSD != "$0.01000000" {
+		t.Fatalf("reopened work changed first-delivery spend: %+v", view)
+	}
+}
+
+func TestRunSpanningMergeCannotBeAllocatedToFirstDelivery(t *testing.T) {
+	snapshot := onlyServedFixture()
+	snapshot.History.Runs[0].Duration = 20 * 60
+	view := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if view.USD != "$0.01000000" || view.FirstDeliveryUSD != "Unknown" {
+		t.Fatalf("a Run spanning merge was allocated without per-generation timing: %+v", view)
+	}
+}
+
 func TestNoWorkReceiptIsNotAnUnattributedExecution(t *testing.T) {
 	snapshot := onlyServedFixture()
 	var selection RunData

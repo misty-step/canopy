@@ -92,6 +92,11 @@ Habitat currently returns at most 50 item-history changes. When that history is 
 
 The core snapshot/Run history follows existing instance refresh cadence. Optional external sources refresh within that same worker about once a minute, with bounded requests. Failures retain the last successful source data with its original observation time and a stale/unavailable warning. Ticket totals deduplicate exact Run IDs across history/recent/live projections and exact served links. Created links do not assign served cost; conflicting primary associations assign cost to neither ticket and are visible. Failed/cancelled Run usage stays included. Token subcategories are shown separately, never blindly added to input/output. Null metrics, incomplete/pending coverage, missing Runs and explicit zero remain distinct; known values are subtotals until coverage is complete.
 
+Lifetime provider USD is a known subtotal across all attributed Runs, including
+reopened work. First-delivery USD is separate: it requires proven first-merge
+history and complete provider receipts for all pre-merge Runs. A live Run or a
+Run spanning that merge makes the allocation unknown; Canopy never prorates it.
+
 ### Private HTTP observation
 
 Instead of `host`, an instance can set `observer_url` to the full private `/v1/forest/observe` endpoint and `observer_token_env` to `FOREST_OBSERVATION_TOKEN`. Keep `root` and `forest` set to the worker's actual paths, for example `/data/vector` and `/data/vector/.iron-forest/bin/forest`. HTTP observation is allowed only on loopback, `.internal` hosts, or private RFC1918/ULA addresses. Other remote sources require HTTPS except the exact observer-bound forge proxy described above. Redirects never receive credentials.

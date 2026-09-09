@@ -33,7 +33,8 @@
               </td>
               <td><dl class="ticket-metrics"><div><dt>Earliest observed Run start</dt><dd class="mono">{{.Started}}</dd></div><div><dt>Wall-clock to first delivery</dt><dd>{{.Latency}}</dd></div>{{if and (eq .Latency "Unknown") (ne .ObservedLatency "Unknown")}}<div><dt>To earliest observed merge only</dt><dd>{{.ObservedLatency}}</dd></div>{{end}}<div><dt>Sum of unique Run duration</dt><dd>{{.Duration}}</dd></div></dl></td>
               <td>
-                <strong class="provider-usd">{{.USD}}</strong><br><span class="muted">provider-observed USD</span>
+                <strong class="provider-usd">{{.USD}}</strong><br><span class="muted">lifetime provider USD subtotal</span>
+                <dl class="ticket-metrics"><div><dt>At first delivery</dt><dd>{{.FirstDeliveryUSD}}</dd></div></dl>
                 <dl class="ticket-metrics"><div><dt>Input / output tokens</dt><dd>{{.InputTokens}} / {{.OutputTokens}}</dd></div></dl>
                 <span class="signal {{if and (eq .Coverage "complete") (eq .UsageFreshness "fresh")}}ok{{else}}unknown{{end}}">{{.Coverage}} · {{.UsageFreshness}}</span><br>
                 <span class="muted">{{if .UsageSessions}}{{.Generations}} known receipts · {{.Pending}} known pending{{else}}Receipt and pending counts unknown{{end}} · {{.MissingUsage}} Runs with unknown usage</span>
