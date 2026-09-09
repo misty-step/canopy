@@ -20,6 +20,7 @@ const (
 type PageView struct {
 	Instances []InstanceView
 	Selected  InstanceView
+	Log       *LogView
 }
 
 type InstanceView struct {
@@ -37,6 +38,8 @@ type InstanceView struct {
 	Config                                                  ConfigViewModel
 	Errors                                                  []string
 	Delivery                                                TicketDeliveryView
+	SelectedWork, SelectedSystem                            string
+	SelectedTicket                                          *TicketView
 }
 
 type AuditView struct {
@@ -82,6 +85,7 @@ type RunViewModel struct {
 	CacheRead, CacheWrite int64
 	Reasoning             int64
 	DefinitionSHA         string
+	ProcessOutcome, Completion, CompletionEvidence string
 }
 
 type AgentViewModel struct {
@@ -134,6 +138,7 @@ type DeclarationViewModel struct {
 
 type LogView struct {
 	RunID    string
+	InstanceID, TicketURL string
 	State    string
 	Retained bool
 	Complete bool
@@ -388,10 +393,13 @@ func runView(run RunData) RunViewModel {
 			status = "failed"
 		}
 	}
+	completion, evidence := completionView(run.Completion)
 	return RunViewModel{
 		RunID: run.RunID, Agent: run.Agent, Started: run.Started,
 		DurationSeconds: run.Duration, Duration: formatDuration(run.Duration), Exit: run.Exit,
 		ExitLabel: exitLabel, Status: status, Error: run.Error,
+		ProcessOutcome: processOutcome(run.Outcome, run.ProcessExit),
+		Completion: completion, CompletionEvidence: evidence,
 		TokensIn: run.TokensIn, TokensOut: run.TokensOut, CacheRead: run.CacheRead,
 		CacheWrite: run.CacheWrite, Reasoning: run.Reasoning, DefinitionSHA: run.DefinitionSHA,
 	}

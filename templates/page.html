@@ -12,13 +12,19 @@
     <main class="page-content" id="main-content">
       <header class="page-header">
         <div>
-          <p class="eyebrow">Read-only operations surface</p>
-          <h1>Canopy</h1>
-          <p class="lede">A quiet, external view of the work your Iron Forest instances are doing now and what they last proved.</p>
+          <h1>{{if .Log}}Run evidence{{else}}Delivery overview{{end}}</h1>
+          <p class="lede">Observed work, supporting evidence, and decisions that need you.</p>
         </div>
-        <p class="muted mono">forest.cli.v2</p>
+        <span class="read-only-label">Read-only</span>
       </header>
-      {{template "instance.html" .Selected}}
+      {{if .Log}}
+        <nav class="back-link" aria-label="Return to work">
+          {{if .Log.TicketURL}}<a href="{{.Log.TicketURL}}">Back to work evidence</a>{{else}}<a href="/?instance={{.Log.InstanceID}}">Back to instance</a>{{end}}
+        </nav>
+        {{template "log.html" .Log}}
+      {{else}}
+        {{template "instance.html" .Selected}}
+      {{end}}
     </main>
   </div>
   <script src="/static/htmx.min.js" defer></script>

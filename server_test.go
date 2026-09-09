@@ -14,7 +14,7 @@ import (
 func testTemplates(t *testing.T) *template.Template {
 	t.Helper()
 	return template.Must(template.New("all").Parse(`
-{{define "page.html"}}page{{end}}
+{{define "page.html"}}page{{if .Log}}{{template "log.html" .Log}}{{end}}{{end}}
 {{define "fleet.html"}}fleet{{end}}
 {{define "instance.html"}}instance{{end}}
 {{define "log.html"}}{{.State}}:{{.Error}}{{end}}

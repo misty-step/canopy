@@ -28,11 +28,13 @@ type ReadSource struct {
 type HabitatSource struct {
 	ReadSource
 	System string `json:"system"`
+	WorkItemIDs []string `json:"work_item_ids,omitempty"`
 }
 
 type ForgeSource struct {
 	ReadSource
 	WebURL string `json:"web_url"`
+	AutomationLogin string `json:"automation_login,omitempty"`
 }
 
 type TicketSources struct {
@@ -78,6 +80,19 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 		if strings.TrimSpace(sources.Habitat.System) == "" {
 			return fmt.Errorf("habitat.system must exactly identify the tracker in Forest work provenance")
 		}
+		if len(sources.Habitat.WorkItemIDs) > 1000 {
+			return fmt.Errorf("habitat.work_item_ids exceeds the 1000-item bounded inventory")
+		}
+		seen := make(map[string]bool, len(sources.Habitat.WorkItemIDs))
+		for _, id := range sources.Habitat.WorkItemIDs {
+			if err := validateRouteIdentifier(id, "habitat work item id"); err != nil {
+				return err
+			}
+			if seen[id] {
+				return fmt.Errorf("habitat.work_item_ids contains duplicate %q", id)
+			}
+			seen[id] = true
+		}
 	}
 	if sources.Tach != nil {
 		if err := validateReadSource(*sources.Tach); err != nil {
@@ -94,6 +109,11 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 		web, _ := url.Parse(sources.Forge.WebURL)
 		if strings.Trim(web.Path, "/") != "" {
 			return fmt.Errorf("forge.web_url must be a web origin")
+		}
+		if sources.Forge.AutomationLogin != "" {
+			if err := validateRouteIdentifier(sources.Forge.AutomationLogin, "forge automation login"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -279,8 +299,11 @@ func (reader sourceReader) collect(ctx context.Context, snapshot Snapshot, previ
 
 func (reader sourceReader) habitat(ctx context.Context, source HabitatSource, snapshot Snapshot, ids []string, previous HabitatObservation) HabitatObservation {
 	result := HabitatObservation{Items: make(map[string]HabitatItem)}
-	if len(ids) == 0 {
-		result.Error = "No Run IDs to query; tracker evidence has not been observed"
+	for _, id := range source.WorkItemIDs {
+		result.Items[id] = HabitatItem{ID: id}
+	}
+	if len(ids) == 0 && len(result.Items) == 0 {
+		result.Error = "No Run IDs or configured work items to query; tracker evidence has not been observed"
 		return result
 	}
 	for offset := 0; offset < len(ids); offset += 50 {
@@ -414,7 +437,7 @@ func (reader sourceReader) habitat(ctx context.Context, source HabitatSource, sn
 	}
 	result.ObservedAt = time.Now().UTC()
 	if result.Scope == "" {
-		result.Scope = "No Run IDs to query; tracker collection not read"
+		result.Scope = "Explicit work item inventory and immutable Run provenance only; no module-wide inventory or admission authority"
 	}
 	return result
 }
@@ -520,6 +543,9 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 			MergedAt *time.Time `json:"merged_at"`
 			MergeSHA string     `json:"merge_commit_sha"`
 			HTMLURL  string     `json:"html_url"`
+			Head struct {
+				SHA string `json:"sha"`
+			} `json:"head"`
 			Base     struct {
 				Ref  string `json:"ref"`
 				Repo struct {
@@ -541,26 +567,15 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 			evidence.ObservedAt = time.Now().UTC()
 			evidence.State = response.State
 			evidence.BaseRef = response.Base.Ref
+			evidence.HeadSHA = response.Head.SHA
 			evidence.Merged = *response.Merged
 			evidence.MergedAt = response.MergedAt
 			evidence.SHA = response.MergeSHA
 			evidence.MergedBy = response.MergedBy.Login
+			evidence.MergerType = response.MergedBy.Type
 			if evidence.Merged && (evidence.MergedAt == nil || evidence.SHA == "") {
 				evidence.Error = "Forge merge timestamp or SHA is missing"
 				evidence.Merged = false
-			}
-			// A human merge action itself is approval. Bot merges require an
-			// independent human approval; without it the UI says merged only.
-			evidence.HumanApproved = response.MergedBy.Type == "User" && response.MergedBy.Login != ""
-			if evidence.Merged && !evidence.HumanApproved {
-				approved, err := reader.humanApproval(ctx, endpoint, source.TokenEnv, *evidence.MergedAt)
-				evidence.HumanApproved = approved
-				if err != nil {
-					evidence.Error = "Human approval read is unavailable"
-					evidence.ApprovalWarning = "Human approval unavailable; merge is not counted as pilot delivery"
-				} else if !approved {
-					evidence.ApprovalWarning = "Human approval not observed; merge is not counted as pilot delivery"
-				}
 			}
 		}
 		if evidence.Error != "" {
@@ -569,12 +584,32 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 				evidence = old
 				evidence.Error = message
 			}
+		} else {
+			receipts, err := reader.reviewReceipts(ctx, strings.TrimRight(source.Endpoint, "/")+strings.Replace(path, "/pulls/", "/issues/", 1)+"/comments", source.TokenEnv)
+			if err != nil {
+				evidence.ReviewSource = previous.Pulls[prURL].ReviewSource
+				evidence.ReviewReceipts = previous.Pulls[prURL].ReviewReceipts
+				evidence.ReviewSource.Error = "Verifier receipt observation failed: " + err.Error()
+			} else {
+				evidence.ReviewSource.ObservedAt = time.Now().UTC()
+				evidence.ReviewReceipts = receipts
+			}
+			approvals, err := reader.forgeApprovals(ctx, endpoint, source.TokenEnv, evidence.HeadSHA, evidence.MergedAt)
+			if err != nil {
+				evidence.ApprovalSource = previous.Pulls[prURL].ApprovalSource
+				evidence.Approvals = previous.Pulls[prURL].Approvals
+				evidence.ApprovalSource.Error = "Forge account review observation failed: " + err.Error()
+				evidence.ApprovalWarning = evidence.ApprovalSource.Error
+			} else {
+				evidence.ApprovalSource.ObservedAt = time.Now().UTC()
+				evidence.Approvals = approvals
+			}
 		}
 		result.Pulls[prURL] = evidence
 	}
 	for _, pull := range result.Pulls {
-		if pull.Error != "" || pull.ApprovalWarning != "" {
-			result.Error = "Some PR or approval evidence is unavailable; inspect ticket warnings"
+		if pull.Error != "" || pull.ReviewSource.Error != "" || pull.ApprovalSource.Error != "" {
+			result.Error = "Some PR or review observations are unavailable; inspect ticket warnings"
 			break
 		}
 	}
@@ -582,9 +617,75 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 	return result
 }
 
-func (reader sourceReader) humanApproval(ctx context.Context, endpoint, tokenEnv string, mergedAt time.Time) (bool, error) {
+func (reader sourceReader) reviewReceipts(ctx context.Context, endpoint, tokenEnv string) ([]ReviewReceipt, error) {
+	receipts := make([]ReviewReceipt, 0)
+	seen := make(map[int64]bool)
+	for page := 1; ; page++ {
+		var comments []struct {
+			ID          int64     `json:"id"`
+			Body        string    `json:"body"`
+			URL         string    `json:"html_url"`
+			CreatedAt   time.Time `json:"created_at"`
+			UpdatedAt   time.Time `json:"updated_at"`
+			Association string    `json:"author_association"`
+			User struct {
+				ID    int64  `json:"id"`
+				Login string `json:"login"`
+				Type  string `json:"type"`
+			} `json:"user"`
+		}
+		if err := reader.read(ctx, http.MethodGet, endpoint+"?per_page=100&page="+strconv.Itoa(page), tokenEnv, "Authorization", nil, &comments); err != nil {
+			return nil, err
+		}
+		if comments == nil {
+			return nil, fmt.Errorf("forge comment collection is missing")
+		}
+		for _, comment := range comments {
+			// The private proxy preserves {} placeholders for unrelated comments
+			// so filtering never shortens an upstream page or hides later receipts.
+			if !strings.Contains(comment.Body, "forest.review.v1") {
+				continue
+			}
+			if comment.ID > 0 && seen[comment.ID] {
+				return nil, fmt.Errorf("forge returned duplicate receipt comment identity")
+			}
+			seen[comment.ID] = true
+			receipt := ReviewReceipt{ID: comment.ID, URL: comment.URL, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt,
+				Author: comment.User.Login, AuthorID: comment.User.ID, AuthorType: comment.User.Type, Association: comment.Association}
+			var payload struct {
+				Schema   string `json:"schema"`
+				RunID    string `json:"run_id"`
+				WorkID   string `json:"work_id"`
+				Revision string `json:"revision"`
+				Decision string `json:"decision"`
+				Summary  string `json:"summary"`
+			}
+			body, marked := strings.CutPrefix(strings.TrimSpace(comment.Body), "<!-- forest.review.v1 -->\n")
+			decoder := json.NewDecoder(strings.NewReader(body))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&payload); !marked || err != nil || decoder.Decode(new(any)) != io.EOF ||
+				payload.Schema != "forest.review.v1" || strings.TrimSpace(payload.RunID) == "" || strings.TrimSpace(payload.WorkID) == "" ||
+				!revisionSHA.MatchString(payload.Revision) || (payload.Decision != "approve" && payload.Decision != "changes") || strings.TrimSpace(payload.Summary) == "" {
+				receipt.ValidationWarning = "Malformed forest.review.v1 receipt"
+			} else {
+				receipt.Schema, receipt.RunID, receipt.WorkID = payload.Schema, payload.RunID, payload.WorkID
+				receipt.Revision, receipt.Decision, receipt.Summary = payload.Revision, payload.Decision, payload.Summary
+			}
+			receipts = append(receipts, receipt)
+		}
+		if len(comments) < 100 {
+			return receipts, nil
+		}
+	}
+}
+
+var revisionSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+func (reader sourceReader) forgeApprovals(ctx context.Context, endpoint, tokenEnv, headSHA string, mergedAt *time.Time) ([]ForgeApproval, error) {
 	type review struct {
 		State       string    `json:"state"`
+		Revision    string    `json:"commit_id"`
+		URL         string    `json:"html_url"`
 		SubmittedAt time.Time `json:"submitted_at"`
 		User        struct {
 			Login string `json:"login"`
@@ -595,13 +696,13 @@ func (reader sourceReader) humanApproval(ctx context.Context, endpoint, tokenEnv
 	for page := 1; ; page++ {
 		var reviews []review
 		if err := reader.read(ctx, http.MethodGet, endpoint+"/reviews?per_page=100&page="+strconv.Itoa(page), tokenEnv, "Authorization", nil, &reviews); err != nil {
-			return false, err
+			return nil, err
 		}
 		if reviews == nil {
-			return false, fmt.Errorf("forge review collection is missing")
+			return nil, fmt.Errorf("forge review collection is missing")
 		}
 		for _, entry := range reviews {
-			if entry.User.Type != "User" || entry.User.Login == "" || entry.SubmittedAt.IsZero() || entry.SubmittedAt.After(mergedAt) {
+			if entry.User.Login == "" || entry.SubmittedAt.IsZero() || (mergedAt != nil && entry.SubmittedAt.After(*mergedAt)) {
 				continue
 			}
 			if entry.State != "APPROVED" && entry.State != "CHANGES_REQUESTED" && entry.State != "DISMISSED" {
@@ -615,10 +716,13 @@ func (reader sourceReader) humanApproval(ctx context.Context, endpoint, tokenEnv
 			break
 		}
 	}
+	approvals := make([]ForgeApproval, 0)
 	for _, entry := range latest {
-		if entry.State == "APPROVED" {
-			return true, nil
+		if entry.State == "APPROVED" && headSHA != "" && entry.Revision == headSHA {
+			approvals = append(approvals, ForgeApproval{Author: entry.User.Login, AuthorType: entry.User.Type,
+				Revision: entry.Revision, URL: safeExternalURL(entry.URL), SubmittedAt: entry.SubmittedAt})
 		}
 	}
-	return false, nil
+	sort.Slice(approvals, func(i, j int) bool { return approvals[i].Author < approvals[j].Author })
+	return approvals, nil
 }

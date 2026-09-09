@@ -218,12 +218,17 @@ func TestForgeProtocolFailureRetainsObservedMergeWithoutRenewingIt(t *testing.T)
 	const prURL = "https://github.com/org/repo/pull/1"
 	var malformed atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/comments") || strings.HasSuffix(r.URL.Path, "/reviews") {
+			fmt.Fprint(w, `[]`)
+			return
+		}
 		var mergedAt any = "2026-09-08T09:10:00Z"
 		if malformed.Load() {
 			mergedAt = nil
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"merged": true, "state": "closed", "merged_at": mergedAt, "merge_commit_sha": "verified-merge", "html_url": prURL,
+			"head": map[string]string{"sha": strings.Repeat("a", 40)},
 			"base":      map[string]any{"ref": "main", "repo": map[string]string{"full_name": "org/repo"}},
 			"merged_by": map[string]string{"login": "human-reviewer", "type": "User"},
 		})
@@ -237,7 +242,151 @@ func TestForgeProtocolFailureRetainsObservedMergeWithoutRenewingIt(t *testing.T)
 	malformed.Store(true)
 	next := reader.forge(context.Background(), source, ConfigData{Repo: "org/repo", Primary: "main"}, habitat, previous)
 	pull := next.Pulls[prURL]
-	if !pull.Merged || !pull.HumanApproved || pull.SHA != "verified-merge" || pull.Error == "" || pull.ObservedAt != previous.Pulls[prURL].ObservedAt {
+	if !pull.Merged || pull.MergerType != "User" || pull.SHA != "verified-merge" || pull.Error == "" || pull.ObservedAt != previous.Pulls[prURL].ObservedAt {
 		t.Fatalf("a failed refresh erased or renewed independent merge evidence: %+v", pull)
+	}
+}
+
+func TestExplicitHabitatInventoryIncludesZeroRunItemsWithoutBroadeningScope(t *testing.T) {
+	var unavailable atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer read-only" {
+			t.Errorf("inventory read crossed the read-only source boundary")
+			w.WriteHeader(403)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/work/items/ticket-a", "/api/work/items/ticket-c":
+			if unavailable.Load() {
+				w.WriteHeader(503)
+				return
+			}
+			id := strings.TrimPrefix(r.URL.Path, "/api/work/items/")
+			_ = json.NewEncoder(w).Encode(map[string]any{"item": HabitatItem{ID: id, Key: id, Title: "Explicitly configured work", Status: "backlog"}})
+		case "/api/work/items/ticket-a/history", "/api/work/items/ticket-c/history":
+			fmt.Fprint(w, `{"history":[]}`)
+		default:
+			t.Errorf("zero-run inventory broadened its query: %s", r.URL)
+			w.WriteHeader(400)
+		}
+	}))
+	defer server.Close()
+	reader := newSourceReader()
+	reader.lookup = func(string) (string, bool) { return "read-only", true }
+	snapshot := Snapshot{Instance: Instance{Sources: TicketSources{Habitat: &HabitatSource{
+		ReadSource: ReadSource{Endpoint: server.URL, TokenEnv: "READ"}, System: "https://habitat.example", WorkItemIDs: []string{"ticket-a", "ticket-c"},
+	}}}, History: RunHistory{SourceObservation: SourceObservation{ObservedAt: time.Now().UTC()}}}
+	snapshot.Delivery = reader.collect(context.Background(), snapshot, DeliverySources{})
+	view := ticketDeliveryView(snapshot, false, time.Now(), time.Minute)
+	if len(view.Tickets) != 2 || view.UnattributedRuns != 0 {
+		t.Fatalf("explicit zero-run inventory disappeared: %+v", view)
+	}
+	for _, ticket := range view.Tickets {
+		if ticket.RunCount != 0 || ticket.USD != "Unknown" || ticket.USDCompact != "Unknown" || ticket.Coverage != "unknown" ||
+			ticket.Stage != "Not started" || ticket.ActionOwner != "Operator" || ticket.TrackerFreshness != "fresh" {
+			t.Fatalf("zero-run inventory invented cost, activity or authorization: %+v", ticket)
+		}
+	}
+	previous := snapshot.Delivery
+	unavailable.Store(true)
+	snapshot.Delivery = reader.collect(context.Background(), snapshot, previous)
+	view = ticketDeliveryView(snapshot, false, time.Now(), time.Minute)
+	for _, ticket := range view.Tickets {
+		if ticket.Stage != "Evidence unavailable" || ticket.TrackerFreshness != "stale" || ticket.Title != "Explicitly configured work" ||
+			snapshot.Delivery.Habitat.Items[ticket.ID].ObservedAt != previous.Habitat.Items[ticket.ID].ObservedAt {
+			t.Fatalf("failed item observation lost or renewed last-good inventory: %+v", ticket)
+		}
+	}
+}
+
+func TestPaginatedReviewReceiptsRetainSourceFreshnessIndependentlyOfNewHead(t *testing.T) {
+	snapshot := reviewedFixture("approve")
+	prURL := snapshot.Delivery.Habitat.Items["ticket-a"].PRURL
+	receipt := snapshot.Delivery.Forge.Pulls[prURL].ReviewReceipts[0]
+	payload, err := json.Marshal(map[string]string{"schema": receipt.Schema, "run_id": receipt.RunID, "work_id": receipt.WorkID,
+		"revision": receipt.Revision, "decision": receipt.Decision, "summary": receipt.Summary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failComments, changedHead atomic.Bool
+	var secondPage atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer read-only" {
+			t.Errorf("forge evidence crossed the read-only proxy boundary")
+			w.WriteHeader(403)
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/github/repos/org/repo/pulls/2":
+			head := receipt.Revision
+			if changedHead.Load() {
+				head = strings.Repeat("b", 40)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"merged": false, "state": "open", "html_url": prURL,
+				"base": map[string]any{"ref": "main", "repo": map[string]string{"full_name": "org/repo"}}, "head": map[string]string{"sha": head}})
+		case "/v1/github/repos/org/repo/pulls/2/reviews":
+			_ = json.NewEncoder(w).Encode([]any{map[string]any{"state": "APPROVED", "commit_id": receipt.Revision,
+				"submitted_at": receipt.CreatedAt, "html_url": prURL+"#pullrequestreview-1",
+				"user": map[string]string{"login": "operator-account", "type": "User"}}})
+		case "/v1/github/repos/org/repo/issues/2/comments":
+			if r.URL.Query().Get("per_page") != "100" {
+				t.Errorf("receipt pagination lost its bounded page size: %s", r.URL.RawQuery)
+			}
+			if failComments.Load() {
+				w.WriteHeader(503)
+				return
+			}
+			switch r.URL.Query().Get("page") {
+			case "1":
+				placeholders := make([]map[string]any, 100)
+				for i := range placeholders {
+					placeholders[i] = map[string]any{}
+				}
+				_ = json.NewEncoder(w).Encode(placeholders)
+			case "2":
+				secondPage.Store(true)
+				_ = json.NewEncoder(w).Encode([]any{map[string]any{"id": receipt.ID, "body": "<!-- forest.review.v1 -->\n"+string(payload),
+					"html_url": receipt.URL, "created_at": receipt.CreatedAt, "updated_at": receipt.UpdatedAt,
+					"author_association": receipt.Association, "user": map[string]any{"id": receipt.AuthorID, "login": receipt.Author, "type": receipt.AuthorType}}})
+			default:
+				t.Errorf("unexpected receipt page: %s", r.URL.RawQuery)
+				w.WriteHeader(400)
+			}
+		default:
+			t.Errorf("unexpected forge read: %s", r.URL)
+			w.WriteHeader(400)
+		}
+	}))
+	defer server.Close()
+	reader := newSourceReader()
+	reader.lookup = func(string) (string, bool) { return "read-only", true }
+	snapshot.Instance.Sources.Forge.Endpoint = server.URL + "/v1/github"
+	state := SourceObservation{ObservedAt: time.Now().UTC()}
+	snapshot.History.SourceObservation = state
+	snapshot.Delivery.Habitat.SourceObservation = state
+	item := snapshot.Delivery.Habitat.Items["ticket-a"]
+	item.SourceObservation, item.PRURLs = state, []string{prURL}
+	snapshot.Delivery.Habitat.Items[item.ID] = item
+	snapshot.Delivery.Forge = reader.forge(context.Background(), *snapshot.Instance.Sources.Forge, snapshot.Config, snapshot.Delivery.Habitat, ForgeObservation{})
+	ticket := ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
+	if !secondPage.Load() || ticket.Stage != "Ready for human review" || ticket.ReviewURL != receipt.URL || ticket.ReviewAuthor != receipt.Author ||
+		len(ticket.AccountApprovals) != 1 || ticket.AccountApprovals[0].Revision != receipt.Revision {
+		t.Fatalf("paged exact receipt/account-action evidence was lost: %+v", ticket)
+	}
+	previous := snapshot.Delivery.Forge
+	changedHead.Store(true)
+	failComments.Store(true)
+	snapshot.Delivery.Forge = reader.forge(context.Background(), *snapshot.Instance.Sources.Forge, snapshot.Config, snapshot.Delivery.Habitat, previous)
+	ticket = ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
+	if ticket.Stage != "Evidence unavailable" || ticket.HeadSHA != strings.Repeat("b", 40) || ticket.ReviewSHA != receipt.Revision ||
+		!strings.Contains(ticket.ReviewWarning, "observation failed") || len(ticket.AccountApprovals) != 0 ||
+		snapshot.Delivery.Forge.Pulls[prURL].ReviewSource.ObservedAt != previous.Pulls[prURL].ReviewSource.ObservedAt {
+		t.Fatalf("new PR observation renewed retained old review evidence or lost new head: %+v", ticket)
+	}
+	failComments.Store(false)
+	snapshot.Delivery.Forge = reader.forge(context.Background(), *snapshot.Instance.Sources.Forge, snapshot.Config, snapshot.Delivery.Habitat, snapshot.Delivery.Forge)
+	ticket = ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
+	if ticket.Stage != "Awaiting verification" || !strings.Contains(ticket.ReviewWarning, "stale revision") {
+		t.Fatalf("successful stale-revision observation was conflated with source failure: %+v", ticket)
 	}
 }

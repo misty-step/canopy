@@ -82,3 +82,31 @@ func TestPrivateForgeProxyCannotEscapeTheObservationCapability(t *testing.T) {
 		}
 	}
 }
+
+func TestConfiguredWorkInventoryAndReceiptAuthorityStayBoundedIdentifiers(t *testing.T) {
+	path := writeInventoryFixture(t, `{
+		"instances": [{"id": "vector", "label": "Vector", "root": "/data/vector", "forest": "/data/vector/.iron-forest/bin/forest",
+			"sources": {
+				"habitat": {"endpoint": "https://habitat.example", "token_env": "HABITAT_READ", "system": "https://habitat.example", "work_item_ids": ["ticket-a", "ticket-c"]},
+				"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ", "web_url": "https://github.com", "automation_login": "forest-automation"}
+			}}]
+	}`)
+	inventory, err := LoadInventory(path)
+	if err != nil {
+		t.Fatalf("explicit bounded inventory rejected: %v", err)
+	}
+	source := inventory.Instances[0].Sources
+	if len(source.Habitat.WorkItemIDs) != 2 || source.Forge.AutomationLogin != "forest-automation" {
+		t.Fatalf("configured inventory or receipt authority was dropped: %+v", source)
+	}
+	for _, sources := range []string{
+		`{"habitat": {"endpoint": "https://habitat.example", "token_env": "HABITAT_READ", "system": "https://habitat.example", "work_item_ids": ["../../etc/passwd"]}}`,
+		`{"habitat": {"endpoint": "https://habitat.example", "token_env": "HABITAT_READ", "system": "https://habitat.example", "work_item_ids": ["ticket-a", "ticket-a"]}}`,
+		`{"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ", "web_url": "https://github.com", "automation_login": "forest automation"}}`,
+	} {
+		unsafe := writeInventoryFixture(t, `{"instances": [{"id": "vector", "label": "Vector", "root": "/data/vector", "forest": "/usr/bin/forest", "sources": `+sources+`}]}`)
+		if _, err := LoadInventory(unsafe); err == nil {
+			t.Fatalf("unsafe or ambiguous configured identity accepted: %s", sources)
+		}
+	}
+}
