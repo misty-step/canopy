@@ -43,8 +43,8 @@ func deliveryFixture() Snapshot {
 				created.RunID: {SessionID: created.RunID, CostUSD: new(5.0), GenerationCount: new(1), PendingCount: new(0), Coverage: "complete"},
 			}},
 			Forge: ForgeObservation{SourceObservation: state, Pulls: map[string]PullEvidence{
-				oldPR: {SourceObservation: state, URL: oldPR, BaseRef: "main", Merged: true, HumanApproved: true, MergedAt: new(observed.Add(-110 * time.Minute)), SHA: "merge-one", MergedBy: "reviewer"},
-				newPR: {SourceObservation: state, URL: newPR, BaseRef: "main", Merged: true, HumanApproved: true, MergedAt: new(observed.Add(-time.Hour)), SHA: "merge-two", MergedBy: "reviewer"},
+				oldPR: {SourceObservation: state, URL: oldPR, BaseRef: "main", Merged: true, MergedAt: new(observed.Add(-110 * time.Minute)), SHA: "merge-one", MergedBy: "reviewer", MergerType: "User"},
+				newPR: {SourceObservation: state, URL: newPR, BaseRef: "main", Merged: true, MergedAt: new(observed.Add(-time.Hour)), SHA: "merge-two", MergedBy: "reviewer", MergerType: "User"},
 			}},
 		},
 	}
@@ -160,28 +160,32 @@ func TestUnknownUsageCannotBecomeZeroOrForestEstimatedCost(t *testing.T) {
 	}
 }
 
-func TestTrackerDoneAndUnapprovedOrNonPrimaryMergesAreNotDelivery(t *testing.T) {
+func TestTrackerDoneAndNonPrimaryMergeDoNotEstablishObservedPrimaryMerge(t *testing.T) {
 	snapshot := onlyServedFixture()
 	item := snapshot.Delivery.Habitat.Items["ticket-a"]
 	item.Status, item.PRURLs = "done", nil
 	snapshot.Delivery.Habitat.Items["ticket-a"] = item
 	view := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
-	if view.Delivered || view.Latency != "Unknown" || view.MergeSHA != "" {
-		t.Fatalf("Done became merge evidence: %+v", view)
+	if view.Delivered || view.Latency != "Unknown" || view.MergeSHA != "" || view.Stage != "Evidence unavailable" {
+		t.Fatalf("Done became independent merge/completion evidence: %+v", view)
 	}
 	for prURL, pull := range snapshot.Delivery.Forge.Pulls {
 		item.PRURLs = append(item.PRURLs, prURL)
-		if pull.SHA == "merge-one" {
-			pull.BaseRef = "release"
-		} else {
-			pull.HumanApproved = false
-		}
+		pull.BaseRef = "release"
 		snapshot.Delivery.Forge.Pulls[prURL] = pull
 	}
 	snapshot.Delivery.Habitat.Items["ticket-a"] = item
 	view = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
 	if view.Delivered || view.Latency != "Unknown" {
-		t.Fatalf("wrong-primary/unapproved merge became delivery: %+v", view)
+		t.Fatalf("wrong-primary merge became observed primary delivery: %+v", view)
+	}
+	prURL := "https://github.com/org/repo/pull/1"
+	pull := snapshot.Delivery.Forge.Pulls[prURL]
+	pull.BaseRef, pull.MergerType = "main", "Bot"
+	snapshot.Delivery.Forge.Pulls[prURL] = pull
+	view = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if !view.Delivered || view.MergeSHA != "merge-one" || view.MergerType != "Bot" || view.Stage == "Complete" {
+		t.Fatalf("observed merge was either lost or mistaken for enforced human approval/completion: %+v", view)
 	}
 }
 
@@ -245,5 +249,263 @@ func TestTicketFragmentKeepsCredentialsServerSideAndEscapesTrackerContent(t *tes
 	app.Handler().ServeHTTP(mutation, httptest.NewRequest("POST", "/fragments/instance?instance=vector", nil))
 	if mutation.Code != 405 {
 		t.Fatalf("delivery fragment accepted mutation method: %d", mutation.Code)
+	}
+}
+
+func reviewedFixture(decision string) Snapshot {
+	snapshot := onlyServedFixture()
+	state := snapshot.History.SourceObservation
+	snapshot.Instance.Sources.Forge.AutomationLogin = "forest-automation"
+	prURL := "https://github.com/org/repo/pull/2"
+	item := snapshot.Delivery.Habitat.Items["ticket-a"]
+	item.PRURL = prURL
+	snapshot.Delivery.Habitat.Items[item.ID] = item
+	receiptAt := time.Date(2026, 9, 8, 10, 10, 20, 0, time.UTC)
+	receipt := ReviewReceipt{Schema: "forest.review.v1", RunID: "verify-1", WorkID: item.ID, Revision: strings.Repeat("a", 40),
+		Decision: decision, Summary: "Exact candidate inspected", ID: 91, URL: prURL + "#issuecomment-91", CreatedAt: receiptAt, UpdatedAt: receiptAt,
+		Author: "forest-automation", AuthorID: 17, AuthorType: "User", Association: "COLLABORATOR"}
+	snapshot.History.Runs = append(snapshot.History.Runs, RunData{RunID: receipt.RunID, Agent: "verifier",
+		RequestID: item.ID + ":verifier:" + receipt.RunID, Work: snapshot.History.Runs[0].Work,
+		Started: "2026-09-08T10:10:00Z", Duration: 60, Outcome: "completed", ProcessExit: new(0),
+		Completion: &CompletionData{Schema: "forest.completion.v1", Status: "completed", Evidence: receipt.URL}})
+	snapshot.Delivery.Forge.Pulls[prURL] = PullEvidence{SourceObservation: state, URL: prURL, State: "open", BaseRef: "main",
+		HeadSHA: receipt.Revision, ReviewSource: state, ReviewReceipts: []ReviewReceipt{receipt}, ApprovalSource: state}
+	return snapshot
+}
+
+func TestCurrentReviewRequiresExactKnownVerifierRunAndRevision(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*Snapshot, *PullEvidence)
+	}{
+		{"wrong role", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].RunID = "run-1" }},
+		{"unknown run", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].RunID = "invented" }},
+		{"no-work selection", func(snapshot *Snapshot, _ *PullEvidence) { snapshot.History.Runs[1].NoWork = true }},
+		{"wrong work", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].WorkID = "ticket-b" }},
+		{"untrusted account", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].Association = "NONE" }},
+		{"anonymous account", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].AuthorID = 0 }},
+		{"missing author", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].Author = "" }},
+		{"wrong comment source", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].URL = "https://github.com/org/repo/pull/99#issuecomment-91" }},
+		{"post-run edit", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].UpdatedAt = pull.ReviewReceipts[0].UpdatedAt.Add(time.Hour) }},
+		{"conflicting run provenance", func(snapshot *Snapshot, _ *PullEvidence) {
+			run := snapshot.History.Runs[1]
+			run.Work = &WorkRef{System: "https://habitat.example", ID: "ticket-b", Key: "VE-2"}
+			snapshot.Status.Recent = []RunData{run}
+		}},
+		{"stale revision", func(_ *Snapshot, pull *PullEvidence) { pull.HeadSHA = strings.Repeat("b", 40) }},
+		{"missing receipt", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts = nil }},
+		{"ambiguous receipts", func(_ *Snapshot, pull *PullEvidence) {
+			other := pull.ReviewReceipts[0]
+			other.ID, other.URL = 92, pull.URL+"#issuecomment-92"
+			pull.ReviewReceipts = append(pull.ReviewReceipts, other)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := reviewedFixture("approve")
+			prURL := snapshot.Delivery.Habitat.Items["ticket-a"].PRURL
+			pull := snapshot.Delivery.Forge.Pulls[prURL]
+			test.change(&snapshot, &pull)
+			snapshot.Delivery.Forge.Pulls[prURL] = pull
+			ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+			if ticket.Stage != "Awaiting verification" || ticket.ReviewWarning == "" {
+				t.Fatalf("rejected or absent current review became approval or an unobserved source: %+v", ticket)
+			}
+		})
+	}
+}
+
+func TestChangesReceiptCompletesVerifierExecutionWithoutApprovingCandidate(t *testing.T) {
+	snapshot := reviewedFixture("changes")
+	view := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute)
+	ticket := view.Tickets[0]
+	if ticket.Stage != "Changes requested" || ticket.ActionOwner != "Fixer" || !ticket.NeedsAttention || ticket.ReviewDecision != "changes" || ticket.ReviewWarning != "" {
+		t.Fatalf("valid changes verdict was lost or promoted to approval: %+v", ticket)
+	}
+	if ticket.Runs[1].Completion != "completed" || ticket.Runs[1].CompletionEvidence != ticket.ReviewURL || ticket.Runs[1].USD != "Unknown" ||
+		ticket.Runs[1].Coverage != "unknown" || ticket.USDCompact != "$0.01" || ticket.Coverage != "partial" || ticket.MissingUsage != 1 {
+		t.Fatalf("Verifier completion became missing work, quality failure, or free usage: %+v", ticket)
+	}
+}
+
+func TestObservedMergeRequiresSeparateExactApprovalAndTrackerReconciliation(t *testing.T) {
+	snapshot := reviewedFixture("approve")
+	prURL := snapshot.Delivery.Habitat.Items["ticket-a"].PRURL
+	pull := snapshot.Delivery.Forge.Pulls[prURL]
+	pull.Merged, pull.State, pull.SHA = true, "closed", "current-merge"
+	pull.MergedAt = new(time.Date(2026, 9, 8, 10, 20, 0, 0, time.UTC))
+	pull.MergedBy, pull.MergerType = "shared-worker-account", "User"
+	snapshot.Delivery.Forge.Pulls[prURL] = pull
+	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Merged; reconciliation required" || !ticket.NeedsAttention || ticket.Tracker != "in_progress" || ticket.ReviewDecision != "approve" {
+		t.Fatalf("merge incorrectly completed tracker work: %+v", ticket)
+	}
+	item := snapshot.Delivery.Habitat.Items["ticket-a"]
+	item.Status = "done"
+	snapshot.Delivery.Habitat.Items[item.ID] = item
+	ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Complete" || ticket.NeedsAttention {
+		t.Fatalf("independent exact review, merge and Done evidence not recognized: %+v", ticket)
+	}
+	pull.ReviewReceipts = nil
+	snapshot.Delivery.Forge.Pulls[prURL] = pull
+	ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Merged; reconciliation required" || ticket.ReviewWarning == "" {
+		t.Fatalf("User-type merger plus Done fabricated valid approval: %+v", ticket)
+	}
+}
+
+func TestHistoricalMergeDoesNotHideReopenedCurrentCandidate(t *testing.T) {
+	snapshot := reviewedFixture("approve")
+	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Ready for human review" || !ticket.Delivered || ticket.PRURL != "https://github.com/org/repo/pull/1" ||
+		ticket.CurrentPRURL != "https://github.com/org/repo/pull/2" || ticket.HeadSHA != strings.Repeat("a", 40) ||
+		ticket.MergeSHA != "merge-one" || ticket.FirstDeliveryUSD != "$0.01000000" {
+		t.Fatalf("historical merge/cost erased or completed the reopened current candidate: %+v", ticket)
+	}
+	pull := snapshot.Delivery.Forge.Pulls[ticket.CurrentPRURL]
+	pull.ReviewReceipts = nil
+	snapshot.Delivery.Forge.Pulls[ticket.CurrentPRURL] = pull
+	ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Awaiting verification" || !ticket.Delivered || ticket.FirstDeliveryUSD != "$0.01000000" {
+		t.Fatalf("missing current review borrowed historic approval or erased historic cost: %+v", ticket)
+	}
+}
+
+func TestStaleSourcesCannotKeepCurrentReadinessWhileFactsRemainVisible(t *testing.T) {
+	for _, source := range []string{"tracker", "history", "pull", "receipt", "parent"} {
+		t.Run(source, func(t *testing.T) {
+			snapshot := reviewedFixture("approve")
+			old := snapshot.History.ObservedAt.Add(-10 * time.Minute)
+			item := snapshot.Delivery.Habitat.Items["ticket-a"]
+			pull := snapshot.Delivery.Forge.Pulls[item.PRURL]
+			switch source {
+			case "tracker":
+				item.ObservedAt = old
+			case "history":
+				snapshot.History.ObservedAt = old
+			case "pull":
+				pull.ObservedAt = old
+			case "receipt":
+				pull.ReviewSource.ObservedAt = old
+			}
+			snapshot.Delivery.Habitat.Items[item.ID] = item
+			snapshot.Delivery.Forge.Pulls[item.PRURL] = pull
+			ticket := ticketDeliveryView(snapshot, source == "parent", time.Date(2026, 9, 8, 11, 0, 0, 0, time.UTC), time.Minute).Tickets[0]
+			if ticket.Stage != "Evidence unavailable" || !ticket.NeedsAttention || ticket.ReviewSHA != strings.Repeat("a", 40) || ticket.USD != "$0.01000000" {
+				t.Fatalf("stale source retained readiness or erased last-good facts: %+v", ticket)
+			}
+		})
+	}
+}
+
+func TestConflictingCostCannotClaimCompleteFirstDeliverySubtotal(t *testing.T) {
+	snapshot := onlyServedFixture()
+	conflict := snapshot.History.Runs[0]
+	conflict.RunID = "ambiguous-run"
+	snapshot.History.Runs = append(snapshot.History.Runs, conflict)
+	snapshot.Delivery.Habitat.Links = []HabitatLink{{RunID: conflict.RunID, WorkItemID: "ticket-b", Relationship: "served"}}
+	snapshot.Delivery.Usage.Sessions[conflict.RunID] = ProviderUsage{SessionID: conflict.RunID, CostUSD: new(10.0), GenerationCount: new(1), PendingCount: new(0), Coverage: "complete"}
+	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.USD != "$0.01000000" || ticket.Coverage != "partial" || ticket.FirstDeliveryUSD != "Unknown" || ticket.Stage != "Evidence unavailable" {
+		t.Fatalf("conflicting excluded Run produced a falsely complete first-delivery cost: %+v", ticket)
+	}
+}
+
+func TestAttributedExecutionOutcomeAndCompletionRemainIndependent(t *testing.T) {
+	snapshot := onlyServedFixture()
+	var run RunData
+	if err := json.Unmarshal([]byte(`{"run_id":"run-1","agent":"builder","started":"2026-09-08T09:00:00Z","duration":60,"exit":1,"process_exit":0,"outcome":"provider_failed","completion":{"schema":"forest.completion.v1","status":"incomplete","reason":"Candidate PR was not published"}}`), &run); err != nil {
+		t.Fatal(err)
+	}
+	run.Work = snapshot.History.Runs[0].Work
+	snapshot.History.Runs[0] = run
+	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	row := ticket.Runs[0]
+	if !strings.Contains(row.ProcessOutcome, "provider failed") || !strings.Contains(row.ProcessOutcome, "Pi exit 0") ||
+		row.Completion != "incomplete" || row.CompletionEvidence != "Candidate PR was not published" || ticket.FailedRuns != 1 {
+		t.Fatalf("raw Pi exit replaced attributed execution/completion failure: %+v", ticket)
+	}
+	run.Outcome, run.ProcessExit, run.Completion = "", nil, nil
+	snapshot.History.Runs[0] = run
+	row = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0].Runs[0]
+	if !strings.Contains(row.ProcessOutcome, "unknown") || row.Completion != "not observed" {
+		t.Fatalf("legacy absence invented a failure cause or completion: %+v", row)
+	}
+}
+
+func TestUnobservedCompletionMakesLatestRelevantAttemptOperatorOwned(t *testing.T) {
+	snapshot := reviewedFixture("approve")
+	prURL := snapshot.Delivery.Habitat.Items["ticket-a"].PRURL
+	pull := snapshot.Delivery.Forge.Pulls[prURL]
+	pull.ReviewReceipts = nil
+	snapshot.Delivery.Forge.Pulls[prURL] = pull
+	verifier := &snapshot.History.Runs[len(snapshot.History.Runs)-1]
+	verifier.Completion = &CompletionData{Schema: "forest.completion.v1", Status: "unknown", Reason: "Completion observer failed"}
+	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Awaiting verification" || ticket.ActionOwner != "Operator" || !ticket.NeedsAttention ||
+		ticket.Runs[1].Completion != "unknown" {
+		t.Fatalf("unobserved completion did not request operator inspection: %+v", ticket)
+	}
+	verifier.Completion = &CompletionData{Schema: "forest.completion.v1", Status: "completed", Evidence: "https://github.com/org/repo/pull/2#issuecomment-91"}
+	ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Awaiting verification" || ticket.ActionOwner != "Verifier" || ticket.NeedsAttention {
+		t.Fatalf("an observed-complete attempt was reported as paused: %+v", ticket)
+	}
+	verifier.Completion = nil
+	ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.ActionOwner != "Verifier" || ticket.NeedsAttention || ticket.Runs[1].Completion != "not observed" {
+		t.Fatalf("absence without a configured observer was reported as a known pause: %+v", ticket)
+	}
+	snapshot.Declarations = []DeclarationData{{Name: "verifier", Completion: ".iron-forest/bin/completion"}}
+	ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.ActionOwner != "Operator" || !ticket.NeedsAttention || ticket.Runs[1].Completion != "not observed" {
+		t.Fatalf("a configured observer producing no observation did not surface the paused attempt: %+v", ticket)
+	}
+	latest := *verifier
+	latest.RunID, latest.RequestID, latest.Started = "verify-2", "ticket-a:verifier:verify-2", "2026-09-08T10:20:00Z"
+	latest.Completion = &CompletionData{Schema: "forest.completion.v1", Status: "completed", Evidence: "Current candidate reviewed"}
+	snapshot.History.Runs = append(snapshot.History.Runs, latest)
+	snapshot.History.Runs[0].Outcome = "provider_failed"
+	snapshot.History.Runs[0].Completion = &CompletionData{Schema: "forest.completion.v1", Status: "unknown", Reason: "Historical Builder observation unavailable"}
+	ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.ActionOwner != "Verifier" || ticket.NeedsAttention || ticket.Stage != "Awaiting verification" {
+		t.Fatalf("a superseded Verifier or unrelated Builder failure overrode the latest completed Verifier: %+v", ticket)
+	}
+}
+
+func TestHistoricalAccountReceiptRemainsEvidenceWithAutomationCaveat(t *testing.T) {
+	for _, automationLogin := range []string{"dedicated-worker-bot", ""} {
+		t.Run("automation="+automationLogin, func(t *testing.T) {
+			snapshot := reviewedFixture("approve")
+			snapshot.Instance.Sources.Forge.AutomationLogin = automationLogin
+			item := snapshot.Delivery.Habitat.Items["ticket-a"]
+			pull := snapshot.Delivery.Forge.Pulls[item.PRURL]
+			receipt := &pull.ReviewReceipts[0]
+			receipt.Author, receipt.AuthorType, receipt.AuthorID, receipt.Association = "moomooskycow", "User", 788415, "MEMBER"
+			snapshot.Delivery.Forge.Pulls[item.PRURL] = pull
+			ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+			if ticket.Stage != "Ready for human review" || ticket.ReviewDecision != "approve" ||
+				ticket.ReviewSHA != pull.HeadSHA || !strings.Contains(ticket.ReviewWarning, receipt.Author) {
+				t.Fatalf("historical accountable author lost valid exact-revision evidence or its trust caveat: %+v", ticket)
+			}
+			pull.State, pull.Merged, pull.SHA = "closed", true, "observed-merge"
+			pull.MergedAt = new(time.Date(2026, 9, 8, 10, 20, 0, 0, time.UTC))
+			snapshot.Delivery.Forge.Pulls[item.PRURL] = pull
+			item.Status = "done"
+			snapshot.Delivery.Habitat.Items[item.ID] = item
+			ticket = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+			if ticket.Stage != "Complete" || ticket.NeedsAttention || !strings.Contains(ticket.ReviewWarning, receipt.Author) {
+				t.Fatalf("automation identity rotation erased observed completion or its trust caveat: %+v", ticket)
+			}
+		})
+	}
+}
+
+func TestReviewTrustUsesKernelIdentityRatherThanRequestNamingConvention(t *testing.T) {
+	snapshot := reviewedFixture("approve")
+	snapshot.History.Runs[1].RequestID = "another-profile/verification/batch-7"
+	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Ready for human review" || ticket.ReviewWarning != "" || ticket.ReviewRunID != snapshot.History.Runs[1].RunID {
+		t.Fatalf("opaque Kernel request id blocked an otherwise valid exact Run/work/revision receipt: %+v", ticket)
 	}
 }

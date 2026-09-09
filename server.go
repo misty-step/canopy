@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"regexp"
 	"time"
 )
@@ -65,6 +66,10 @@ func (a *App) handlePage(w http.ResponseWriter, r *http.Request) {
 	}
 	a.selectInstance(id)
 	view := a.pageView(id, time.Now().UTC())
+	if err := selectWork(&view.Selected, r); err != nil {
+		handleParamError(w, r, err)
+		return
+	}
 	a.render(w, r, []string{"page.html", "page"}, view)
 }
 
@@ -101,7 +106,34 @@ func (a *App) handleInstance(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("HX-Trigger-After-Swap", "canopy-selection")
 	}
 	view := a.pageView(id, time.Now().UTC())
+	if err := selectWork(&view.Selected, r); err != nil {
+		handleParamError(w, r, err)
+		return
+	}
 	a.render(w, r, []string{"instance.html", "instance"}, view.Selected)
+}
+
+// A deep link selects only already-observed evidence; it never broadens a
+// source query or authorizes work. Unknown identities remain visible as unknown.
+func selectWork(view *InstanceView, r *http.Request) error {
+	query := r.URL.Query()
+	work, hasWork := query["work"]
+	system, hasSystem := query["system"]
+	if !hasWork && !hasSystem {
+		return nil
+	}
+	if len(work) != 1 || len(system) != 1 || work[0] == "" || system[0] == "" || len(work[0]) > 512 || len(system[0]) > 2048 {
+		return errors.New("work selection requires one bounded system and immutable work id")
+	}
+	view.SelectedWork, view.SelectedSystem = work[0], system[0]
+	for i := range view.Delivery.Tickets {
+		ticket := &view.Delivery.Tickets[i]
+		if ticket.ID == work[0] && ticket.System == system[0] {
+			view.SelectedTicket = ticket
+			break
+		}
+	}
+	return nil
 }
 
 func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +165,7 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	result, collectErr := a.collector.Logs(ctx, instance, runID, false)
 	cancel()
 	sanitizedText := sanitizeLogText(result.Text)
-	view := LogView{RunID: runID, Complete: result.Complete, Retained: result.Retained, Exit: result.Exit, Text: sanitizedText}
+	view := LogView{RunID: runID, InstanceID: instanceID, Complete: result.Complete, Retained: result.Retained, Exit: result.Exit, Text: sanitizedText}
 	switch {
 	case collectErr != nil && isUnknownRunError(collectErr):
 		view.State = "unknown"
@@ -148,7 +180,24 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 		// whose log has been evicted. It is not an HTTP error.
 		view.State = "evicted"
 	}
-	a.render(w, r, []string{"log.html", "log"}, view)
+	if r.Header.Get("HX-Request") == "true" {
+		a.render(w, r, []string{"log.html", "log"}, view)
+		return
+	}
+	page := a.pageView(instanceID, time.Now().UTC())
+	for _, ticket := range page.Selected.Delivery.Tickets {
+		for _, run := range ticket.Runs {
+			if run.ID == runID {
+				view.TicketURL = "/?" + url.Values{"instance": {instanceID}, "system": {ticket.System}, "work": {ticket.ID}}.Encode() + "#work-evidence"
+				break
+			}
+		}
+		if view.TicketURL != "" {
+			break
+		}
+	}
+	page.Log = &view
+	a.render(w, r, []string{"page.html", "page"}, page)
 }
 
 func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {

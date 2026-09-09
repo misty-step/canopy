@@ -136,6 +136,7 @@ type DeclarationData struct {
 	SkillPaths    []string `json:"skills"`
 	DefinitionSHA string   `json:"definition_sha,omitempty"`
 	MaxDuration   int      `json:"max_duration,omitempty"`
+	Completion    string   `json:"completion,omitempty"`
 }
 
 // KernelData preserves the distinction between a stopped Kernel and one whose
@@ -183,6 +184,9 @@ type RunData struct {
 	Started       string   `json:"started"`
 	Duration      float64  `json:"duration"`
 	Exit          int      `json:"exit"`
+	ProcessExit   *int            `json:"process_exit,omitempty"`
+	Outcome       string          `json:"outcome,omitempty"`
+	Completion    *CompletionData `json:"completion,omitempty"`
 	NoWork        bool     `json:"no_work,omitempty"`
 	TokensIn      int64    `json:"tokens_in"`
 	TokensOut     int64    `json:"tokens_out"`
@@ -193,6 +197,14 @@ type RunData struct {
 	DefinitionSHA string   `json:"definition_sha,omitempty"`
 }
 
+// CompletionData is a profile observation, independent of process exit.
+type CompletionData struct {
+	Schema   string `json:"schema"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
+	Evidence string `json:"evidence,omitempty"`
+}
+
 // LiveRunData mirrors one currently running Run.
 type LiveRunData struct {
 	RunID     string   `json:"run_id"`
@@ -201,6 +213,9 @@ type LiveRunData struct {
 	Work      *WorkRef `json:"work,omitempty"`
 	StartedAt string   `json:"started_at"`
 	Elapsed   string   `json:"elapsed"`
+	ProcessExit *int            `json:"process_exit,omitempty"`
+	Outcome     string          `json:"outcome,omitempty"`
+	Completion  *CompletionData `json:"completion,omitempty"`
 	Cancel    string   `json:"cancel"`
 }
 
@@ -224,6 +239,9 @@ type RunFailureData struct {
 	RunID string `json:"run_id"`
 	Agent string `json:"agent"`
 	Exit  int    `json:"exit"`
+	ProcessExit *int            `json:"process_exit,omitempty"`
+	Outcome     string          `json:"outcome,omitempty"`
+	Completion  *CompletionData `json:"completion,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 

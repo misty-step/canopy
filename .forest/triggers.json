@@ -1,0 +1,38 @@
+{
+  "builder": {
+    "agent": "builder",
+    "consecutive_errors": 0,
+    "last_code": 1,
+    "last_run": "2026-09-04T20:35:48.540142854Z",
+    "running": false
+  },
+  "critic": {
+    "agent": "critic",
+    "consecutive_errors": 0,
+    "last_code": 1,
+    "last_run": "2026-09-05T19:35:42.91161389Z",
+    "running": false
+  },
+  "fixer": {
+    "agent": "fixer",
+    "consecutive_errors": 0,
+    "last_code": 1,
+    "last_run": "2026-09-04T20:10:44.310643252Z",
+    "running": false
+  },
+  "tester": {
+    "agent": "tester",
+    "consecutive_errors": 0,
+    "last_code": 1,
+    "last_run": "2026-09-05T19:35:42.913138403Z",
+    "running": false
+  },
+  "verifier": {
+    "agent": "verifier",
+    "consecutive_errors": 0,
+    "last_code": 0,
+    "run_error": "provider budget exhausted",
+    "last_run": "2026-09-04T20:15:43.774438475Z",
+    "running": false
+  }
+}

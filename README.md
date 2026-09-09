@@ -1,12 +1,35 @@
 # Canopy
 
-Canopy is a read-only operator view across one or more Iron Forest instances. It renders ticket delivery, live Kernel, audit, trigger, Run, Ledger, declaration, and log evidence in one Go binary with server-rendered HTML and HTMX updates.
+Canopy is a read-only work and evidence view across independent Iron Forest instances. A compact work table leads to the current decision, exact-revision review, observed merge, provider subtotal and Run attempts. Kernel diagnostics remain available without dominating the page. One Go binary serves HTML and HTMX; there is no frontend application server or second business ledger.
 
 ## Boundary
 
 Canopy treats every Forest as an external service. It invokes only the versioned `forest.cli.v2` JSON interface, locally, through `ssh`, or through an authenticated private observation endpoint. It does not import Iron Forest code, read `.iron-forest/runtime` files, open the Ledger database, or expose mutation routes. Optional Habitat, Tach and GitHub-compatible forge APIs supply independent read-only ticket and provider evidence; Canopy keeps no money ledger.
 
 A failed refresh never becomes an empty healthy state. Canopy retains the last successful snapshot and marks it stale. An instance without a successful snapshot is unknown. Trigger polling and Run outcomes remain separate signals.
+
+## Inspect work
+
+The overview distinguishes **Needs you**, **In progress**, and observed **Merged**
+counts. Open a work item to inspect its request, candidate, revision-bound review,
+merge and tracker state independently. A merge does not imply deployment.
+
+Work links use `/?instance=<id>&system=<namespace>&work=<immutable-id>#work-evidence`.
+They survive reload and refresh without widening a source query. An unknown work
+identity remains unknown; a URL is not permission to fetch or execute it.
+Disclosure state, keyboard focus and scroll position survive panel replacement;
+the evidence itself is refreshed, not frozen.
+
+Run logs load on demand within the selected work. Their ordinary GET links also
+open a complete page with a return link. Known evicted logs remain distinct from
+unknown Runs or failed reads. Diagnostics label the Ledger percentage as an
+**exit-zero rate**, never agent quality. New Forest `outcome`, `process_exit`
+and `completion` fields are independent; legacy missing facts remain unknown.
+
+Provider cost is a subtotal with explicit complete/partial/unknown coverage.
+The table rounds for reading; work details retain full precision and the
+first-delivery allocation caveats. Human effort and infrastructure are not part
+of this provider subtotal.
 
 ## Run
 
@@ -70,12 +93,14 @@ Each instance can add `sources`. Omitting an entry disables that external source
   "habitat": {
     "endpoint": "https://habitat-r90tools.vercel.app",
     "system": "https://habitat-r90tools.vercel.app",
-    "token_env": "HABITAT_READ_TOKEN"
+    "token_env": "HABITAT_READ_TOKEN",
+    "work_item_ids": ["immutable-authorized-work-id"]
   },
   "forge": {
     "endpoint": "https://api.github.com",
     "web_url": "https://github.com",
-    "token_env": "GITHUB_READ_TOKEN"
+    "token_env": "GITHUB_READ_TOKEN",
+    "automation_login": "repository-worker"
   }
 }
 ```
@@ -84,9 +109,16 @@ Add `tach` with `endpoint` set to the deployed Tach ingest function **base URL**
 
 Habitat uses a complete Bearer token from its named environment variable (including `habitat:` when applicable), authorized for read access to the pilot module/work items. It reads `/api/work/run-links` by exact Run IDs with all pages, `/api/work/items/<immutable-id>`, and `/api/work/items/<immutable-id>/history`. Set `system` to the **exact** namespace in Forest's `work.system`; identity is never normalized from a ticket title, branch or status. Habitat link scope covers current nondeleted items in the credential's authorized modules, not the whole tracker.
 
-Forge credentials need read access to the declared repository's pull requests and reviews. Only explicit current/historical `pr_url` values on the same configured forge and Forest repository are queried. A merged PR must have a source timestamp/SHA and target the declared primary. A human merge actor or a recorded human approval establishes pilot delivery; bot merges without observed human approval remain merged-only. Tracker Done is not merge evidence, and a reopened item retains its immutable identity and earlier observed merge.
+Optional `work_item_ids` declares the exact bounded work inventory independently
+of Run history. These identities appear before their first Run, with unknown
+usage rather than zero cost. An omitted list retains Run-derived discovery;
+Canopy does not enumerate a whole module or infer authorization from its contents.
 
-When a separately scoped forge credential is unavailable, the R90 worker's authenticated observer can provide the narrow GitHub metadata read capability instead. Set `forge.endpoint` to the **same origin as `observer_url`** with path `/v1/github`, retain `web_url: https://github.com`, and use the same `FOREST_OBSERVATION_TOKEN` environment-variable name. The observer must permit only GET `/repos/r90group/vector/pulls/<positive-id>` and its `/reviews?per_page=100&page=<positive-page>` collection, construct its own upstream HTTPS requests, strip incoming headers and bodies, and refuse redirects. Its worker GitHub credential never enters Canopy. A private HTTP forge source with any other origin, path or credential name is rejected.
+Forge credentials need read access to the declared repository's pull requests and receipt comments. Only explicit current/historical `pr_url` values on the configured forge and Forest repository are queried. A merge must have its own timestamp/SHA and target the declared primary. `Merged` counts that observation, not an inferred human act. A GitHub `User` account is not by itself proof of human intent or protected merge authority.
+
+Set `automation_login` to the dedicated principal allowed to publish review receipts. A usable `forest.review.v1` receipt must match that author, the exact current candidate, immutable work identity, and a known Verifier Run serving that work. Missing or stale receipts, unavailable reads and unconfigured authority remain explicit. Review, current tracker state and historical delivery are separate; reopening work does not erase earlier observed merges or costs. Host/forge policy, not Canopy, enforces separation between worker and human authority.
+
+When a separately scoped forge credential is unavailable, the R90 worker's authenticated observer can provide the narrow GitHub metadata read capability instead. Set `forge.endpoint` to the **same origin as `observer_url`** with path `/v1/github`, retain `web_url: https://github.com`, and use the same `FOREST_OBSERVATION_TOKEN` environment-variable name. The observer permits bounded GET metadata for the declared repository: `pulls/<id>`, paginated `pulls/<id>/reviews`, and paginated `issues/<id>/comments`. It projects required receipt/identity fields, constructs its own upstream HTTPS requests, strips incoming headers and bodies, and refuses redirects. Its worker GitHub credential never enters Canopy. A private HTTP forge source with another origin, path or credential name is rejected.
 
 Habitat currently returns at most 50 item-history changes. When that history is full or unavailable, or other needed evidence is incomplete, **first-delivery latency stays unknown**. The UI separately labels the interval to the earliest **observed** qualifying merge; it does not promote that observation to proven lifetime first delivery. Previously observed PR references and successful source responses remain in the same volatile refresh snapshot, not a new persisted ledger. A restart cannot recover PR references no longer exposed by Habitat.
 
@@ -110,16 +142,16 @@ go build -o canopy .
 ./canopy -config canopy.json -listen 127.0.0.1:8080
 ```
 
-For the real browser journey, select the Vector instance, inspect each source's observation time, follow the tracker and independently linked PR, expand Run evidence, and open a failed/cancelled Run log. Keep the evidence disclosure open across refreshes; content should update without losing keyboard focus. With a source credential absent, confirm that source is unavailable while fleet/Run/log views continue. Reopen work in the tracker only through its normal authorized workflow, never Canopy; the ticket must remain one row with the previous observed merge and newly attributed Run costs.
+For the browser acceptance journey, inspect one completed item, one ready for human review, a merged item awaiting tracker reconciliation, an incomplete review and a zero-Run item. Deep-link into evidence, leave review/Run disclosures open across consecutive refreshes, read a log and return to the same work. Verify preserved focus and mobile access to the table. With an unavailable source, the page must keep its last evidence visibly stale rather than show a healthy empty state. Use isolated synthetic observations for this exercise; it does not authorize mutations of a live tracker or new paid work.
 
 ## HTTP surface
 
 Canopy serves only GET routes:
 
-- `/` — complete page
+- `/` — complete work page; optional instance/system/work selection
 - `/fragments/fleet` — fleet rail update
 - `/fragments/instance` — selected instance update
-- `/logs` — retained, evicted, unknown, or failed log state
+- `/logs` — full retained/evicted/unknown/failed log page, or a fragment for HTMX
 - `/healthz` — process liveness
 - `/static/` — embedded CSS and HTMX
 
