@@ -58,7 +58,7 @@
         <section class="card card-wide" aria-labelledby="live-title">
           <div class="card-header"><h2 id="live-title">Live work</h2><span class="muted">{{.ActiveRuns}} active</span></div>
           {{if .LiveRuns}}
-            <div class="data-table-wrap"><table class="data-table"><thead><tr><th>Run</th><th>Agent</th><th>Started</th><th>Elapsed</th><th>Logs</th></tr></thead><tbody>
+            <div id="live-work-table" class="data-table-wrap" data-preserve-scroll><table class="data-table"><thead><tr><th>Run</th><th>Agent</th><th>Started</th><th>Elapsed</th><th>Logs</th></tr></thead><tbody>
               {{range .LiveRuns}}
                 <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td class="mono">{{.StartedAt}}</td><td>{{.Elapsed}}</td><td><a class="log-link" href="/logs?instance={{$.ID}}&amp;run={{.RunID}}">Read log</a></td></tr>
               {{end}}
@@ -69,7 +69,7 @@
         <section class="card card-half" aria-labelledby="trigger-title">
           <div class="card-header"><h2 id="trigger-title">Trigger matrix</h2><span class="muted">poll vs run</span></div>
           {{if .Triggers}}
-            <div class="data-table-wrap">
+            <div id="trigger-table" class="data-table-wrap" data-preserve-scroll>
             <table class="data-table"><thead><tr><th>Agent</th><th>Poll</th><th>Run</th><th>Errors</th></tr></thead><tbody>
               {{range .Triggers}}
                 <tr><td>{{if .Name}}{{.Name}}{{else}}legacy / unnamed{{end}}</td><td><span class="signal {{.PollStatus}}">{{.PollStatus}}</span>{{if .PollError}}<br><span class="muted">{{.PollError}}</span>{{end}}</td><td><span class="signal {{.RunStatus}}">{{.RunStatus}}</span>{{if .RunError}}<br><span class="muted">{{.RunError}}</span>{{end}}</td><td>{{.ConsecutiveErrors}}</td></tr>
@@ -82,7 +82,7 @@
         <section class="card card-half" aria-labelledby="recent-title">
           <div class="card-header"><h2 id="recent-title">Recent runs</h2><span class="muted">newest first</span></div>
           {{if .RecentRuns}}
-            <div class="data-table-wrap">
+            <div id="recent-runs-table" class="data-table-wrap" data-preserve-scroll>
             <table class="data-table"><thead><tr><th>Run</th><th>Agent</th><th>Outcome</th><th>Duration</th><th>Logs</th></tr></thead><tbody>
               {{range .RecentRuns}}
                 <tr><td class="mono">{{.RunID}}</td><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td><strong>{{.ProcessOutcome}}</strong><br><span class="muted">{{.ExitLabel}} · completion {{.Completion}}</span>{{if .Error}}<br><span class="muted">{{.Error}}</span>{{end}}</td><td>{{.Duration}}</td><td><a class="log-link" href="/logs?instance={{$.ID}}&amp;run={{.RunID}}">Read log</a></td></tr>
@@ -103,7 +103,7 @@
           </div>
           {{if .HasLedger}}
             {{if .Agents}}
-              <div class="data-table-wrap">
+              <div id="execution-history-table" class="data-table-wrap" data-preserve-scroll>
               <table class="data-table"><thead><tr><th>Agent</th><th class="number">Runs</th><th class="number">Exit-zero rate</th><th class="number">P50</th><th class="number">P95</th><th class="number">Tokens in</th><th class="number">Tokens out</th></tr></thead><tbody>
                 {{range .Agents}}
                   <tr><td>{{if .Agent}}{{.Agent}}{{else}}legacy / unnamed{{end}}</td><td class="number">{{.Runs}}</td><td class="number">{{.PassRateLabel}}</td><td class="number">{{.DurationP50Label}}</td><td class="number">{{.DurationP95Label}}</td><td class="number">{{.TokensIn}}</td><td class="number">{{.TokensOut}}</td></tr>
@@ -118,7 +118,7 @@
         <section class="card card-wide" aria-labelledby="declarations-title">
           <div class="card-header"><h2 id="declarations-title">Declarations</h2><span class="muted">configuration snapshot</span></div>
           {{if .Config.Declarations}}
-            <div class="data-table-wrap">
+            <div id="declarations-table" class="data-table-wrap" data-preserve-scroll>
             <table class="data-table"><thead><tr><th>Name</th><th>Model</th><th>Model source</th><th>Tools</th><th>Duration limit</th></tr></thead><tbody>
               {{range .Config.Declarations}}
                 <tr><td>{{if .Name}}{{.Name}}{{else}}legacy / unnamed{{end}}</td><td class="mono">{{.Model}}</td><td>{{.ModelSource}}</td><td>{{range $index, $tool := .Tools}}{{if $index}}, {{end}}{{$tool}}{{end}}</td><td>{{if .MaxDuration}}{{.MaxDuration}}s{{else}}unbounded{{end}}</td></tr>

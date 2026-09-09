@@ -38,7 +38,7 @@
   {{end}}
 
   {{if .Delivery.Tickets}}
-    <div class="data-table-wrap" role="region" aria-label="Work and current decisions" tabindex="0">
+    <div id="work-table" class="data-table-wrap" data-preserve-scroll role="region" aria-label="Work and current decisions" tabindex="0">
       <table class="data-table ticket-table">
         <caption class="visually-hidden">Observed work, current decision, attributed execution time and provider cost. Open a work item for revision-bound evidence.</caption>
         <thead><tr><th scope="col">Work and outcome</th><th scope="col">Current stage</th><th scope="col">Execution</th><th scope="col" class="number">Provider subtotal</th><th scope="col">Evidence</th></tr></thead>
@@ -97,7 +97,7 @@
   {{if .ReviewSummary}}
     <details id="review-evidence" class="ticket-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}">
       <summary>Review findings and verification evidence</summary>
-      <pre class="review-summary">{{.ReviewSummary}}</pre>
+      <pre id="review-summary" class="review-summary" data-preserve-scroll="{{.ReviewSHA}}" tabindex="0" aria-label="Review findings and verification evidence">{{.ReviewSummary}}</pre>
       {{if .ReviewRunID}}<a class="mono" href="/logs?instance={{$instance}}&amp;run={{.ReviewRunID}}">Verifier Run {{.ReviewRunID}}</a>{{end}}
     </details>
   {{end}}

@@ -17,8 +17,10 @@ merge and tracker state independently. A merge does not imply deployment.
 Work links use `/?instance=<id>&system=<namespace>&work=<immutable-id>#work-evidence`.
 They survive reload and refresh without widening a source query. An unknown work
 identity remains unknown; a URL is not permission to fetch or execute it.
-Disclosure state, keyboard focus and scroll position survive panel replacement;
-the evidence itself is refreshed, not frozen.
+Disclosure state, keyboard focus, and page/table scroll positions survive panel
+replacement. Long review receipts retain their reading position for the same
+reviewed revision and start at the top for a new revision. The evidence itself
+is refreshed, not frozen.
 
 Run logs load on demand within the selected work. Their ordinary GET links also
 open a complete page with a return link. Known evicted logs remain distinct from
@@ -144,7 +146,7 @@ go build -o canopy .
 ./canopy -config canopy.json -listen 127.0.0.1:8080
 ```
 
-For the browser acceptance journey, inspect one completed item, one ready for human review, a merged item awaiting tracker reconciliation, an incomplete review and a zero-Run item. Deep-link into evidence, leave review/Run disclosures open across consecutive refreshes, read a log and return to the same work. Verify preserved focus and mobile access to the table. With an unavailable source, the page must keep its last evidence visibly stale rather than show a healthy empty state. Use isolated synthetic observations for this exercise; it does not authorize mutations of a live tracker or new paid work.
+For the browser acceptance journey, inspect one completed item, one ready for human review, a merged item awaiting tracker reconciliation, an incomplete review and a zero-Run item. Deep-link into evidence, leave review/Run disclosures open across consecutive refreshes, read a log and return to the same work. At mobile width, scroll the table horizontally and a long receipt vertically; focus and reading positions must survive refresh without widening the page. A new reviewed revision must start the receipt at the top. With an unavailable source, the page must keep its last evidence visibly stale rather than show a healthy empty state. Use isolated synthetic observations for this exercise; it does not authorize mutations of a live tracker or new paid work.
 
 ## HTTP surface
 

@@ -2,7 +2,7 @@
 (() => {
   let state = null;
   const identity = (element) => JSON.stringify([
-    element.id, element.dataset.workSystem, element.dataset.workId,
+    element.id, element.dataset.workSystem, element.dataset.workId, element.dataset.preserveScroll,
   ]);
   document.addEventListener("htmx:beforeSwap", (event) => {
     const panel = event.detail.target;
@@ -13,6 +13,8 @@
       instance: panel.dataset.instance,
       work: panel.dataset.work,
       open: new Set(Array.from(panel.querySelectorAll("details[id][open]"), identity)),
+      scroll: new Map(Array.from(panel.querySelectorAll("[id][data-preserve-scroll]"),
+        (element) => [identity(element), [element.scrollLeft, element.scrollTop]])),
       focused: panel.contains(active) ? {
         id: active.id,
         summary: active.matches("summary") && disclosure ? identity(disclosure) : null,
@@ -39,6 +41,13 @@
         .find((link) => link.getAttribute("href") === state.focused.href);
     }
     focus?.focus({ preventScroll: true });
+    for (const element of panel.querySelectorAll("[id][data-preserve-scroll]")) {
+      const position = state.scroll.get(identity(element));
+      if (position) {
+        element.scrollLeft = position[0];
+        element.scrollTop = position[1];
+      }
+    }
     window.scrollTo(state.x, state.y);
   });
 })();
