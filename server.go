@@ -101,10 +101,7 @@ func (a *App) handleInstance(w http.ResponseWriter, r *http.Request) {
 	if id == "" {
 		id = a.selectedID()
 	}
-	selectionChanged := a.selectInstance(id)
-	if selectionChanged {
-		w.Header().Set("HX-Trigger-After-Swap", "canopy-selection")
-	}
+	a.selectInstance(id)
 	view := a.pageView(id, time.Now().UTC())
 	if err := selectWork(&view.Selected, r); err != nil {
 		handleParamError(w, r, err)

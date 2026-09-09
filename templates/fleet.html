@@ -1,43 +1,38 @@
-<aside class="fleet-rail" id="fleet"
-  hx-get="/fragments/fleet"
-  hx-trigger="every 10s [document.hidden === false], canopy-selection from:body"
-  hx-target="#fleet"
-  hx-swap="outerHTML">
-  <a class="brand" href="/" aria-label="Canopy home">
-    <span class="brand-mark" aria-hidden="true">⌁</span>
-    <span>
+<header class="masthead" id="fleet" data-instance="{{.Selected.ID}}"
+  hx-get="/fragments/fleet{{if .Selected.ID}}?instance={{.Selected.ID}}{{end}}"
+  hx-trigger="every 10s [document.hidden === false]"
+  hx-target="#fleet" hx-swap="outerHTML">
+  <div class="masthead-inner">
+    <a class="brand" href="/" aria-label="Canopy home">
+      <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true"><path d="M4 28V17C4 9.8 10.3 4 18 4s14 5.8 14 13v11h-6V17c0-4.1-3.6-7.5-8-7.5S10 12.9 10 17v11H4Z"/><path d="M15 18h6v14h-6z"/></svg>
       <span class="brand-name">Canopy</span>
-      <span class="brand-caption">Iron Forest view</span>
+    </a>
+    {{if .Instances}}
+      <details id="fleet-switcher" class="fleet-switcher">
+        <summary>
+          <span class="switcher-current">{{if .Selected.Label}}{{.Selected.Label}}{{else if .Selected.ID}}{{.Selected.ID}}{{else}}Choose an instance{{end}}</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+        </summary>
+        <nav class="fleet-menu" aria-label="Forest instances">
+          <p class="fleet-menu-heading">Observed instances <span>{{len .Instances}}</span></p>
+          <ul class="instance-list">
+            {{range .Instances}}
+              <li>
+                <a class="instance-link" href="/?instance={{.ID}}"
+                  aria-current="{{if .IsSelected}}true{{else}}false{{end}}">
+                  <span class="state-dot {{.Freshness}}" aria-hidden="true"></span>
+                  <span class="instance-name"><strong>{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}</strong><span>{{if .Repo}}{{.Repo}}{{else}}{{.ID}}{{end}}</span></span>
+                  <span class="instance-state">{{.Freshness}}{{if gt .ActiveRuns 0}}<br>{{.ActiveRuns}} active{{end}}</span>
+                </a>
+              </li>
+            {{end}}
+          </ul>
+        </nav>
+      </details>
+    {{else}}<span class="masthead-empty">No instances configured</span>{{end}}
+    <span class="observation-label" role="note" aria-label="Observation only" title="Canopy observes. Operations happen through the operator CLI.">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z"/><circle cx="10" cy="10" r="2"/></svg>
+      <span>Observation only</span>
     </span>
-  </a>
-  <p class="rail-heading">Fleet</p>
-  {{if .Instances}}
-    <nav aria-label="Forest instances">
-      <ul class="instance-list">
-        {{range .Instances}}
-          <li>
-            <a class="instance-link" href="/?instance={{.ID}}"
-              hx-get="/fragments/instance?instance={{.ID}}" hx-target="#instance-panel" hx-push-url="/?instance={{.ID}}"
-              aria-current="{{if .IsSelected}}true{{else}}false{{end}}">
-              <span class="state-dot {{.Freshness}}" aria-hidden="true"></span>
-              <span class="instance-name">
-                <span class="instance-title-row">
-                  <span class="instance-label">{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}</span>
-                  {{if .KernelKnown}}
-                    <span class="pill-badge {{if .KernelRunning}}running{{else}}stopped{{end}}">{{if .KernelRunning}}live{{else}}stopped{{end}}</span>
-                  {{end}}
-                </span>
-                <span class="instance-meta">
-                  {{if .Repo}}{{.Repo}}{{else}}{{.Freshness}}{{end}}
-                  {{if gt .ActiveRuns 0}} · <strong class="accent-text">{{.ActiveRuns}} running</strong>{{end}}
-                </span>
-              </span>
-            </a>
-          </li>
-        {{end}}
-      </ul>
-    </nav>
-  {{else}}
-    <p class="rail-empty">No instances configured.</p>
-  {{end}}
-</aside>
+  </div>
+</header>

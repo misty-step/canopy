@@ -1,18 +1,13 @@
 <article id="log-{{.RunID}}" class="log-drawer log-output" aria-live="polite">
-  <div class="card-header">
-    <h3>Run log <span class="mono">{{.RunID}}</span></h3>
-    {{if eq .State "retained"}}<span class="signal ok">retained</span>{{else if eq .State "evicted"}}<span class="signal unknown">not retained</span>{{else if eq .State "unknown"}}<span class="signal error">unknown run</span>{{else}}<span class="signal error">error</span>{{end}}
-  </div>
+  <header class="log-header"><div><h3>Run log</h3><p class="mono">{{.RunID}}</p></div>{{if eq .State "retained"}}<span class="signal ok">retained</span>{{else if eq .State "evicted"}}<span class="signal unknown">not retained</span>{{else if eq .State "unknown"}}<span class="signal error">unknown Run</span>{{else}}<span class="signal error">read failed</span>{{end}}</header>
   {{if eq .State "retained"}}
-    {{if .Text}}<pre>{{.Text}}</pre>{{else}}<p class="muted">The retained log is empty.</p>{{end}}
-    {{if .Exit}}<p class="muted">completed with exit {{.Exit}}</p>{{end}}
+    {{if .Text}}<pre tabindex="0" aria-label="Retained Run log">{{.Text}}</pre>{{else}}<p class="log-message">The retained log is empty.</p>{{end}}
+    {{if .Exit}}<p class="log-footnote">Process exit {{.Exit}}. An execution result is not proof of delivery.</p>{{end}}
   {{else if eq .State "evicted"}}
-    <p class="muted">This Run is known, but its log is no longer retained.</p>
+    <p class="log-message">This Run is known, but its log is no longer retained.</p>
   {{else if eq .State "unknown"}}
-    <p>This Run identity is not known by the instance.</p>
-    {{if .Error}}<p class="muted">{{.Error}}</p>{{end}}
+    <p class="log-message">This Run identity is not known by the instance.</p>{{if .Error}}<p class="log-footnote">{{.Error}}</p>{{end}}
   {{else}}
-    <p>Canopy could not read this Run log.</p>
-    {{if .Error}}<p class="muted">{{.Error}}</p>{{end}}
+    <p class="log-message">Canopy could not read this Run log.</p>{{if .Error}}<p class="log-footnote">{{.Error}}</p>{{end}}
   {{end}}
 </article>

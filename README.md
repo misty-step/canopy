@@ -1,6 +1,6 @@
 # Canopy
 
-Canopy is a read-only work and evidence view across independent Iron Forest instances. A compact work table leads to the current decision, exact-revision review, observed merge, provider subtotal and Run attempts. Kernel diagnostics remain available without dominating the page. One Go binary serves HTML and HTMX; there is no frontend application server or second business ledger.
+Canopy is a read-only work and evidence view across independent Iron Forest instances. A searchable work index opens an evidence reader for the current decision, exact-revision review, observed merge, provider subtotal and Run attempts. Desktop inspection keeps the index beside the evidence; mobile gives the selected work its own reading view. Runtime details remain available without dominating the page. One Go binary embeds the HTML, styles, scripts and fonts; there is no frontend application server or second business ledger.
 
 ## Boundary
 
@@ -14,13 +14,27 @@ The overview distinguishes **Needs you**, **In progress**, and observed **Merged
 counts. Open a work item to inspect its request, candidate, revision-bound review,
 merge and tracker state independently. A merge does not imply deployment.
 
+The instance switcher uses ordinary page navigation. Each fleet refresh carries
+the page's instance identity, so another viewer's activity cannot relabel it.
+Search matches already-rendered work keys, titles and immutable IDs. The **All
+work**, **Needs you**, **In progress** and **Merged** filters never expand source
+scope. `q` and `filter` URL parameters preserve this context through work links,
+reload and browser Back/Forward; they do not become collector queries.
+
+Press `/` to focus a visible search field. Escape clears the focused query while
+keeping its category, or dismisses the open instance switcher. All work and
+evidence remain readable without JavaScript; search and filtering appear only
+when their handlers are available.
+
 Work links use `/?instance=<id>&system=<namespace>&work=<immutable-id>#work-evidence`.
 They survive reload and refresh without widening a source query. An unknown work
 identity remains unknown; a URL is not permission to fetch or execute it.
-Disclosure state, keyboard focus, and page/table scroll positions survive panel
-replacement. Long review receipts retain their reading position for the same
-reviewed revision and start at the top for a new revision. The evidence itself
-is refreshed, not frozen.
+Fleet and work disclosures retain their state independently. Keyboard focus,
+search caret, page position and declared scroll regions survive replacement.
+Long review receipts retain their reading position for the same reviewed
+revision and start at the top for a new revision. Selected receipt text is
+restored only when both the revision and exact text are unchanged. The evidence
+itself is refreshed, not frozen.
 
 Run logs load on demand within the selected work. Their ordinary GET links also
 open a complete page with a return link. Known evicted logs remain distinct from
@@ -29,7 +43,7 @@ unknown Runs or failed reads. Diagnostics label the Ledger percentage as an
 and `completion` fields are independent; legacy missing facts remain unknown.
 
 Provider cost is a subtotal with explicit complete/partial/unknown coverage.
-The table rounds for reading; work details retain full precision and the
+The index rounds for reading; work details retain full precision and the
 first-delivery allocation caveats. Human effort and infrastructure are not part
 of this provider subtotal.
 
@@ -146,17 +160,24 @@ go build -o canopy .
 ./canopy -config canopy.json -listen 127.0.0.1:8080
 ```
 
-For the browser acceptance journey, inspect one completed item, one ready for human review, a merged item awaiting tracker reconciliation, an incomplete review and a zero-Run item. Deep-link into evidence, leave review/Run disclosures open across consecutive refreshes, read a log and return to the same work. At mobile width, scroll the table horizontally and a long receipt vertically; focus and reading positions must survive refresh without widening the page. A new reviewed revision must start the receipt at the top. With an unavailable source, the page must keep its last evidence visibly stale rather than show a healthy empty state. Use isolated synthetic observations for this exercise; it does not authorize mutations of a live tracker or new paid work.
+For the browser acceptance journey, inspect complete work, human review, changes requested, a merged item awaiting reconciliation, an incomplete review, active work and a zero-Run item. Search and combine categories, recover from no matches, follow a deep link and use Back/Forward. Leave disclosures open, type with a selected search range, and scroll/select a long receipt across consecutive refreshes. A new reviewed revision must start the receipt at the top; changed text must not inherit an old selection. Open the instance switcher during overlapping fleet/work refreshes, and verify that independent viewers retain their own instance context.
+
+At mobile width, primary work content must be readable without horizontal scrolling; diagnostic tables retain their own scroll regions. Exercise keyboard focus, the dedicated evidence view, retained and evicted logs, and navigation back to work. A failed source keeps last-good evidence visibly stale; no first observation remains unknown, and an empty inventory is distinct from a filter with no matches. Use isolated synthetic observations for these states; this exercise does not authorize tracker mutations or new paid work.
 
 ## HTTP surface
 
 Canopy serves only GET routes:
 
 - `/` — complete work page; optional instance/system/work selection
-- `/fragments/fleet` — fleet rail update
+- `/fragments/fleet` — fleet switcher update with the page's explicit instance context
 - `/fragments/instance` — selected instance update
 - `/logs` — full retained/evicted/unknown/failed log page, or a fragment for HTMX
 - `/healthz` — process liveness
-- `/static/` — embedded CSS and HTMX
+- `/static/` — embedded styles, scripts, identity mark and self-hosted fonts
 
 HTMX 2.0.9 is vendored from the official distribution under the Zero-Clause BSD license. See `THIRD_PARTY_LICENSES`.
+
+The interface uses Barlow Semi Condensed for identity/headings and IBM Plex Sans
+for UI and review prose. Monospace is reserved for exact identifiers and logs.
+The fonts are served locally under the SIL Open Font License; browsing Canopy
+does not contact a font CDN. Their notices are in `THIRD_PARTY_LICENSES`.
