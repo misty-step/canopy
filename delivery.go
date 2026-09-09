@@ -260,6 +260,7 @@ type TicketView struct {
 	Delivery, DeliveryClass, PRURL, MergeTime, MergeSHA, Merger, MergeFreshness       string
 	Started, Latency, ObservedLatency, Duration, Coverage, UsageFreshness             string
 	InputTokens, OutputTokens, CacheRead, CacheWrite, Reasoning, USD                  string
+	FirstDeliveryUSD                                                                  string
 	Runs                                                                              []TicketRunView
 	CreatedRuns                                                                       []string
 	RunCount, FailedRuns, LiveRuns, MissingUsage, Pending, Generations, UsageSessions int
@@ -432,7 +433,8 @@ func safeExternalURL(raw string) string {
 func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale bool, now time.Time) TicketView {
 	view := TicketView{ID: aggregate.Work.ID, System: aggregate.Work.System, Key: aggregate.Work.Key,
 		URL: safeExternalURL(aggregate.Work.URL), Tracker: "Unknown", TrackerFreshness: "unknown", Delivery: "Unknown — no independently observed PR", DeliveryClass: "unknown",
-		Started: "Unknown", Latency: "Unknown", ObservedLatency: "Unknown", Duration: "Unknown", Coverage: "unknown", MergeTime: "Unknown", Notes: aggregate.Notes}
+		FirstDeliveryUSD: "Unknown",
+		Started:          "Unknown", Latency: "Unknown", ObservedLatency: "Unknown", Duration: "Unknown", Coverage: "unknown", MergeTime: "Unknown", Notes: aggregate.Notes}
 	if view.Key == "" {
 		view.Key = view.ID
 	}
@@ -624,6 +626,7 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 				view.ObservedLatency = formatDuration(selected.MergedAt.Sub(*firstStart).Seconds())
 				if firstDeliveryKnown {
 					view.Latency = view.ObservedLatency
+					view.FirstDeliveryUSD = firstDeliveryCost(aggregate.Runs, snapshot.Delivery.Usage.Sessions, *selected.MergedAt)
 				} else {
 					view.Notes = append(view.Notes, "Earliest observed merge is shown; incomplete evidence leaves first-delivery latency unknown")
 				}
@@ -632,6 +635,34 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 	}
 	sort.Strings(view.Notes)
 	return view
+}
+
+func firstDeliveryCost(runs map[string]attributedRun, sessions map[string]ProviderUsage, merged time.Time) string {
+	var total float64
+	known := false
+	for id, run := range runs {
+		started, err := time.Parse(time.RFC3339Nano, run.Started)
+		if err != nil {
+			return "Unknown"
+		}
+		if !started.Before(merged) {
+			continue
+		}
+		if run.Exit == nil || run.Duration == nil || *run.Duration < 0 || math.IsNaN(*run.Duration) || math.IsInf(*run.Duration, 0) || *run.Duration > merged.Sub(started).Seconds() {
+			// Per-Run receipts cannot allocate a Run spanning the merge.
+			return "Unknown"
+		}
+		usage, exists := sessions[id]
+		if !exists || usage.Coverage != "complete" || usage.CostUSD == nil {
+			return "Unknown"
+		}
+		total += *usage.CostUSD
+		known = true
+	}
+	if !known {
+		return "Unknown"
+	}
+	return fmt.Sprintf("$%.8f", total)
 }
 
 func addKnownTokens(total, value *int64) *int64 {
