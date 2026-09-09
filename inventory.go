@@ -127,6 +127,22 @@ func validateInstance(instance Instance) error {
 	if instance.Forest == "" {
 		return fmt.Errorf("instance %q forest is empty", instance.ID)
 	}
+	if instance.ObserverURL != "" {
+		if instance.Host != "" {
+			return fmt.Errorf("instance %q cannot combine SSH and HTTP observation", instance.ID)
+		}
+		if err := validateSourceEndpoint(instance.ObserverURL, true); err != nil {
+			return fmt.Errorf("instance %q observer_url: %w", instance.ID, err)
+		}
+		if !environmentName.MatchString(instance.ObserverTokenEnv) {
+			return fmt.Errorf("instance %q observer_token_env must name a credential environment variable", instance.ID)
+		}
+	} else if instance.ObserverTokenEnv != "" {
+		return fmt.Errorf("instance %q observer_token_env requires observer_url", instance.ID)
+	}
+	if err := validateTicketSources(instance.Sources, instance.ObserverURL, instance.ObserverTokenEnv); err != nil {
+		return fmt.Errorf("instance %q sources: %w", instance.ID, err)
+	}
 	if instance.Host != "" {
 		if err := validateSSHHost(instance.Host); err != nil {
 			return fmt.Errorf("instance %q host: %w", instance.ID, err)

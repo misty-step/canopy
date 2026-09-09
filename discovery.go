@@ -92,7 +92,8 @@ func scanSystemdUnits(ctx context.Context, out map[string]Instance) {
 			if !strings.Contains(workDir, "/misty-step/") {
 				continue
 			}
-			if isExecutable(execPath) {
+			if execPath == filepath.Join(workDir, ".iron-forest", "bin", "forest") &&
+				isRegularFile(filepath.Join(workDir, ".iron-forest", "config.yaml")) && isExecutable(execPath) {
 				id := sanitizeID(name)
 				out[workDir] = Instance{
 					ID:     id,
@@ -112,16 +113,12 @@ func scanDevelopmentRoots(out map[string]Instance) {
 	}
 
 	scanDevelopmentRoot(filepath.Join(homeDir, "Development", "misty-step"), out)
+	scanDevelopmentRoot(filepath.Join(homeDir, "development", "misty-step"), out)
 }
 
-// scanDevelopmentRoot adds one discoverable instance per directory under
-// parent that declares itself a Forest checkout. A checkout is recognized
-// either by a forest.yaml declaration or by the legacy combination of a
-// .forest directory and an executable repo-local ./forest binary. When the
-// repo-local binary is missing or not executable, the Forest binary is
-// resolved from PATH and then from the self-host Iron Forest factory
-// checkout. It is separated from scanDevelopmentRoots so unit tests can
-// supply a temporary directory with mocked checkouts.
+// scanDevelopmentRoot discovers installed .iron-forest profiles. Configuration
+// and the pinned instance binary must both be present; an unrelated PATH or
+// factory executable cannot stand in for an instance's installed runtime.
 func scanDevelopmentRoot(parent string, out map[string]Instance) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
@@ -133,19 +130,9 @@ func scanDevelopmentRoot(parent string, out map[string]Instance) {
 			continue
 		}
 		repoPath := filepath.Join(parent, entry.Name())
-		forestDir := filepath.Join(repoPath, ".forest")
-		forestBin := filepath.Join(repoPath, "forest")
-		forestYAML := filepath.Join(repoPath, "forest.yaml")
-
-		if !isRegularFile(forestYAML) {
-			fi, err := os.Stat(forestDir)
-			if err != nil || !fi.IsDir() || !isExecutable(forestBin) {
-				continue
-			}
-		}
-
-		binary := resolveForestBinary(repoPath, parent)
-		if binary == "" {
+		profile := filepath.Join(repoPath, ".iron-forest")
+		binary := filepath.Join(profile, "bin", "forest")
+		if !isRegularFile(filepath.Join(profile, "config.yaml")) || !isExecutable(binary) {
 			continue
 		}
 
@@ -160,24 +147,6 @@ func scanDevelopmentRoot(parent string, out map[string]Instance) {
 			Forest: binary,
 		}
 	}
-}
-
-// resolveForestBinary returns the Forest executable to use for a checkout.
-// It prefers a repo-local ./forest binary, then one on PATH, then the
-// compiled binary in the self-host Iron Forest factory checkout.
-func resolveForestBinary(repoPath, parent string) string {
-	local := filepath.Join(repoPath, "forest")
-	if isExecutable(local) {
-		return local
-	}
-	if path, err := exec.LookPath("forest"); err == nil && path != "" {
-		return path
-	}
-	factory := filepath.Join(parent, "iron-forest", "forest")
-	if isExecutable(factory) {
-		return factory
-	}
-	return ""
 }
 
 func isRegularFile(path string) bool {

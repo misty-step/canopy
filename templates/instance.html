@@ -27,6 +27,7 @@
       </section>
     {{else}}
       <div class="card-grid">
+        {{template "tickets.html" .}}
         <section class="card card-third" aria-labelledby="overview-title">
           <div class="card-header"><h2 id="overview-title">Overview</h2><span class="signal {{.Freshness}}">{{.Freshness}}</span></div>
           <dl class="metric-row">

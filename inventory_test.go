@@ -58,3 +58,27 @@ func TestLoadInventoryRejectsUnknownAndTrailingJSON(t *testing.T) {
 		t.Fatalf("trailing inventory error=%v, want multiple-value rejection", err)
 	}
 }
+
+func TestPrivateForgeProxyCannotEscapeTheObservationCapability(t *testing.T) {
+	instance := Instance{
+		ID: "vector", Label: "Vector", Root: "/data/vector", Forest: "/data/vector/.iron-forest/bin/forest",
+		ObserverURL: "http://[fdaa::1]:9090/v1/forest/observe", ObserverTokenEnv: "FOREST_OBSERVATION_TOKEN",
+		Sources: TicketSources{Forge: &ForgeSource{
+			ReadSource: ReadSource{Endpoint: "http://[fdaa::1]:9090/v1/github", TokenEnv: "FOREST_OBSERVATION_TOKEN"},
+			WebURL:     "https://github.com",
+		}},
+	}
+	if err := validateInstance(instance); err != nil {
+		t.Fatalf("private read proxy rejected: %v", err)
+	}
+	for _, source := range []ReadSource{
+		{Endpoint: "http://[fdaa::2]:9090/v1/github", TokenEnv: "FOREST_OBSERVATION_TOKEN"},
+		{Endpoint: "http://[fdaa::1]:9090/other-api", TokenEnv: "FOREST_OBSERVATION_TOKEN"},
+		{Endpoint: "http://[fdaa::1]:9090/v1/github", TokenEnv: "WORKER_WRITE_TOKEN"},
+	} {
+		instance.Sources.Forge.ReadSource = source
+		if err := validateInstance(instance); err == nil {
+			t.Fatalf("private forge origin/path/credential escaped the read-only observer: %+v", source)
+		}
+	}
+}

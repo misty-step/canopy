@@ -1,4 +1,4 @@
 canopy
 canopy.json
-forest
-.forest/
+.iron-forest/bin/
+.iron-forest/runtime/

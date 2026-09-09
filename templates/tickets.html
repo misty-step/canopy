@@ -1,0 +1,61 @@
+<section class="card card-wide ticket-delivery" aria-labelledby="tickets-title">
+  <div class="card-header">
+    <h2 id="tickets-title">Ticket delivery</h2>
+    <span class="muted">{{len .Delivery.Tickets}} unique tickets · {{.Delivery.Delivered}} human-approved merges</span>
+  </div>
+  <p class="delivery-boundary">Delivery here means a human-approved PR merge to the declared primary, not deployment. Tracker state and forge evidence are independent.</p>
+  <dl class="source-health" aria-label="Delivery evidence sources">
+    {{range .Delivery.Sources}}
+      <div><dt>{{.Name}} <span class="signal {{if eq .State "fresh"}}ok{{else}}{{.State}}{{end}}">{{.State}}</span></dt><dd>{{.Message}}{{if .Observed}}<br><time class="mono">{{.Observed}}</time>{{end}}</dd></div>
+    {{end}}
+  </dl>
+  {{if .Delivery.HistoryNotice}}<p class="evidence-warning">{{.Delivery.HistoryNotice}}</p>{{end}}
+  <p class="muted delivery-coverage">{{.Delivery.UnattributedRuns}} Runs without a served ticket · {{.Delivery.ConflictingRuns}} Runs with conflicting attribution. Neither is silently charged to a ticket. External sources refresh about once a minute.</p>
+  {{if or .Delivery.UnattributedRuns .Delivery.ConflictingRuns}}<p class="evidence-warning">Known unassigned provider subtotal: {{.Delivery.UnassignedUSD}}; input / output tokens {{.Delivery.UnassignedInput}} / {{.Delivery.UnassignedOutput}}; {{if .Delivery.UnassignedUsageSessions}}{{.Delivery.UnassignedPending}} known pending{{else}}pending count unknown{{end}}. This usage is not included in ticket totals; the Tach source freshness above still applies.</p>{{end}}
+  {{if .Delivery.Tickets}}
+    <div class="data-table-wrap" role="region" aria-label="Ticket delivery evidence" tabindex="0">
+      <table class="data-table ticket-table">
+        <caption class="visually-hidden">Unique ticket delivery, attributed Run time and provider-observed usage. Expand Run evidence for exact identities and outcomes.</caption>
+        <thead><tr><th scope="col">Ticket</th><th scope="col">Current tracker state</th><th scope="col">Observed merge</th><th scope="col">Delivery timing</th><th scope="col">Provider usage</th><th scope="col">Attributed work</th></tr></thead>
+        <tbody>
+          {{range .Delivery.Tickets}}
+            <tr>
+              <th scope="row" class="ticket-identity">
+                {{if .URL}}<a href="{{.URL}}" rel="noreferrer">{{.Key}}</a>{{else}}{{.Key}}{{end}}
+                {{if .Title}}<p>{{.Title}}</p>{{end}}
+                <span class="muted mono">{{.System}}<br>{{.ID}}</span>
+              </th>
+              <td><strong>{{.Tracker}}</strong><br><span class="signal {{if eq .TrackerFreshness "fresh"}}ok{{else}}{{.TrackerFreshness}}{{end}}">{{.TrackerFreshness}}</span>{{if .TrackerObserved}}<br><time class="mono">{{.TrackerObserved}}</time>{{end}}</td>
+              <td>
+                <span class="signal {{.DeliveryClass}}">{{.Delivery}}</span>
+                {{if .PRURL}}<p><a href="{{.PRURL}}" rel="noreferrer">Open pull request</a></p>{{end}}
+                {{if .MergeSHA}}<time class="mono">{{.MergeTime}}</time><br><span class="mono">{{.MergeSHA}}</span>{{if .Merger}}<br><span class="muted">merged by {{.Merger}}</span>{{end}}<br><span class="signal {{if eq .MergeFreshness "fresh"}}ok{{else}}{{.MergeFreshness}}{{end}}">{{.MergeFreshness}}</span>{{end}}
+              </td>
+              <td><dl class="ticket-metrics"><div><dt>Earliest observed Run start</dt><dd class="mono">{{.Started}}</dd></div><div><dt>Wall-clock to first delivery</dt><dd>{{.Latency}}</dd></div>{{if and (eq .Latency "Unknown") (ne .ObservedLatency "Unknown")}}<div><dt>To earliest observed merge only</dt><dd>{{.ObservedLatency}}</dd></div>{{end}}<div><dt>Sum of unique Run duration</dt><dd>{{.Duration}}</dd></div></dl></td>
+              <td>
+                <strong class="provider-usd">{{.USD}}</strong><br><span class="muted">provider-observed USD</span>
+                <dl class="ticket-metrics"><div><dt>Input / output tokens</dt><dd>{{.InputTokens}} / {{.OutputTokens}}</dd></div></dl>
+                <span class="signal {{if and (eq .Coverage "complete") (eq .UsageFreshness "fresh")}}ok{{else}}unknown{{end}}">{{.Coverage}} · {{.UsageFreshness}}</span><br>
+                <span class="muted">{{if .UsageSessions}}{{.Generations}} known receipts · {{.Pending}} known pending{{else}}Receipt and pending counts unknown{{end}} · {{.MissingUsage}} Runs with unknown usage</span>
+                {{if ne .Coverage "complete"}}<p class="muted">Known values are subtotals, not a final bill. Unknown is not zero.</p>{{end}}
+              </td>
+              <td>
+                <strong>{{.RunCount}} served Runs</strong><br><span class="muted">{{.FailedRuns}} nonzero exits · {{.LiveRuns}} live</span>
+                <details class="ticket-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}">
+                  <summary>Run evidence and caveats <span class="visually-hidden">for {{.Key}}</span></summary>
+                  {{if .Runs}}<ul class="ticket-run-list">{{range .Runs}}<li><a class="mono" href="/logs?instance={{$.ID}}&amp;run={{.ID}}">{{.ID}}</a><br>{{.Agent}} · {{.Outcome}} · {{.Duration}}<br><time class="mono">{{.Started}}</time>{{if .RequestID}}<br><span class="mono">request {{.RequestID}}</span>{{end}}</li>{{end}}</ul>{{end}}
+                  {{if .CreatedRuns}}<p class="muted">Created relationships (not additional served cost):</p><ul class="ticket-run-list">{{range .CreatedRuns}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
+                  <p class="muted">Token subcategories are not added to input/output: cache read {{.CacheRead}}, cache write {{.CacheWrite}}, reasoning {{.Reasoning}}.</p>
+                  {{if .Notes}}<ul class="error-list">{{range .Notes}}<li>{{.}}</li>{{end}}</ul>{{end}}
+                </details>
+                {{if .Notes}}<span class="signal stale">Evidence caveats</span>{{end}}
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  {{else}}
+    <p class="empty">No exact served or created ticket identities have been observed. Runs without Forest work provenance or authorized Habitat Run links stay unattributed; ticket titles and branch names are never used to guess.</p>
+  {{end}}
+</section>

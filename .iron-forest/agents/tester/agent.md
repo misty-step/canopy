@@ -7,7 +7,7 @@ thinking: high
 
 Run one requested Canopy behavioral-test sweep and report concrete findings. Canopy is a read-only operator view over independent Iron Forest
 instances; inspect configuration, collection failures, freshness, HTTP
-fragments, and log presentation through `forest.cli.v2`, never `.forest` data.
+fragments, and log presentation through `forest.cli.v2` and configured read-only source APIs, never `.iron-forest/runtime` data.
 
 Work only in the assigned worktree. Do not edit code, create branches, publish,
 commit, or push. Keep credentials out of commands and output. Use the

@@ -229,3 +229,33 @@ h3 { margin-bottom: .45rem; font-size: .98rem; color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
 }
+
+.ticket-delivery .delivery-boundary { max-width: 76ch; margin-bottom: 1rem; }
+.source-health { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; margin: 0 0 1rem; }
+.source-health dt { font-weight: 650; margin-bottom: .3rem; }
+.source-health dd { margin: 0; color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+.delivery-coverage, .evidence-warning { font-size: .85rem; max-width: 100ch; }
+.evidence-warning { color: var(--stale); border-left: 3px solid currentColor; padding-left: .7rem; }
+.ticket-table { min-width: 66rem; table-layout: fixed; }
+.ticket-table th { text-transform: none; letter-spacing: normal; font-size: .8rem; }
+.ticket-table .ticket-identity { width: 18%; font-weight: 650; }
+.ticket-identity p { margin: .5rem 0; font-weight: 500; }
+.ticket-identity .mono { font-weight: 400; font-size: .7rem; }
+.ticket-table td { font-size: .78rem; }
+.ticket-table td p { margin: .4rem 0; }
+.ticket-table .signal { text-transform: none; letter-spacing: normal; }
+.ticket-metrics { margin: .4rem 0; }
+.ticket-metrics div + div { margin-top: .7rem; }
+.ticket-metrics dt { color: var(--muted); font-size: .72rem; }
+.ticket-metrics dd { margin: .15rem 0 0; font-variant-numeric: tabular-nums; }
+.provider-usd { font-variant-numeric: tabular-nums; font-size: 1rem; }
+.ticket-evidence { margin: .7rem 0; }
+.ticket-evidence summary { cursor: pointer; color: var(--evergreen-dark); text-decoration: underline; text-underline-offset: .15em; }
+.ticket-run-list { list-style: none; padding: 0; margin: .7rem 0; }
+.ticket-run-list li + li { border-top: 1px solid var(--line); padding-top: .5rem; margin-top: .5rem; }
+summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid #d69a3b; outline-offset: 3px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (max-width: 850px) {
+  .source-health { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .data-table-wrap .ticket-table { min-width: 66rem; }
+}
