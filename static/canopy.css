@@ -190,7 +190,7 @@ h3 { margin-bottom: .45rem; font-size: .98rem; color: var(--ink); }
 .metric dt { color: var(--muted); font-size: .8rem; }
 .metric dd { margin: 0; font-size: 1.2rem; font-weight: 680; }
 
-.data-table-wrap { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.data-table-wrap { position: relative; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
 .data-table { width: 100%; border-collapse: collapse; font-size: .88rem; color: var(--ink); }
 .data-table th { color: #354741; font-size: .82rem; font-weight: 650; text-align: left; }
 .data-table th, .data-table td { padding: .65rem .45rem; vertical-align: top; border-bottom: 1px solid var(--line); }
