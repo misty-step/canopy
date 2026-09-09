@@ -3,29 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Canopy · Iron Forest visibility</title>
+  <meta name="theme-color" content="#F4F7FB">
+  <title>{{if .Log}}Run evidence{{else if .Selected.Label}}{{.Selected.Label}}{{else}}Work observation{{end}} · Canopy</title>
+  <link rel="icon" href="/static/canopy.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/barlow-semi-condensed-600.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/canopy.css">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to work</a>
   <div class="app-shell">
     {{template "fleet.html" .}}
-    <main class="page-content" id="main-content">
-      <header class="page-header">
-        <div>
-          <h1>{{if .Log}}Run evidence{{else}}Delivery overview{{end}}</h1>
-          <p class="lede">Observed work, supporting evidence, and decisions that need you.</p>
-        </div>
-        <span class="read-only-label">Read-only</span>
-      </header>
+    <main class="page-content" id="main-content" tabindex="-1">
       {{if .Log}}
-        <nav class="back-link" aria-label="Return to work">
-          {{if .Log.TicketURL}}<a href="{{.Log.TicketURL}}">Back to work evidence</a>{{else}}<a href="/?instance={{.Log.InstanceID}}">Back to instance</a>{{end}}
-        </nav>
+        <header class="log-page-header">
+          <nav class="back-link" aria-label="Return to work">
+            {{if .Log.TicketURL}}<a href="{{.Log.TicketURL}}">Back to work evidence</a>{{else}}<a href="/?instance={{.Log.InstanceID}}">Back to instance</a>{{end}}
+          </nav>
+          <h1>Run evidence</h1>
+          <p class="lede">The retained execution record, directly from this instance.</p>
+        </header>
         {{template "log.html" .Log}}
       {{else}}
         {{template "instance.html" .Selected}}
       {{end}}
     </main>
+    <footer class="app-footer"><span>Canopy / Iron Forest</span><span>Observation is not authorization.</span></footer>
   </div>
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/canopy.js" defer></script>

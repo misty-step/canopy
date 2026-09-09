@@ -84,26 +84,20 @@ func TestReadOnlyRoutesRejectMutationMethods(t *testing.T) {
 
 func TestHandlerServesEmbeddedStaticFiles(t *testing.T) {
 	app := NewApp(testInventory(), &testCollector{}, testTemplates(t))
-	for _, path := range []string{"/static/canopy.css", "/static/htmx.min.js"} {
+	for _, path := range []string{
+		"/static/canopy.css",
+		"/static/canopy.js",
+		"/static/canopy.svg",
+		"/static/htmx.min.js",
+		"/static/fonts/ibm-plex-sans-latin.woff2",
+		"/static/fonts/barlow-semi-condensed-600.woff2",
+		"/static/fonts/barlow-semi-condensed-700.woff2",
+	} {
 		recorder := httptest.NewRecorder()
 		app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		if recorder.Code != http.StatusOK || recorder.Body.Len() == 0 {
 			t.Fatalf("GET %s status=%d bytes=%d, want non-empty 200", path, recorder.Code, recorder.Body.Len())
 		}
-	}
-}
-
-func TestInstanceSelectionTriggersFleetRefresh(t *testing.T) {
-	inventory := testInventory()
-	inventory.Instances = append(inventory.Instances, Instance{ID: "two", Label: "Two", Root: "/tmp/two", Forest: "forest"})
-	app := NewApp(inventory, &testCollector{}, testTemplates(t))
-	recorder := httptest.NewRecorder()
-	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/fragments/instance?instance=two", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status=%d, want %d", recorder.Code, http.StatusOK)
-	}
-	if got := recorder.Header().Get("HX-Trigger-After-Swap"); got != "canopy-selection" {
-		t.Fatalf("HX-Trigger-After-Swap=%q, want canopy-selection", got)
 	}
 }
 

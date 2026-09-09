@@ -343,18 +343,18 @@ func (a *App) inventoryCopy() Inventory {
 	return inventory
 }
 
-func (a *App) selectInstance(id string) bool {
+func (a *App) selectInstance(id string) {
 	a.mu.Lock()
 	if _, ok := a.states[id]; !ok {
 		a.mu.Unlock()
-		return false
+		return
 	}
 	changed := a.selected != id
 	a.selected = id
 	worker := a.workers[id]
 	a.mu.Unlock()
 	if !changed {
-		return false
+		return
 	}
 	if worker != nil {
 		select {
@@ -362,7 +362,6 @@ func (a *App) selectInstance(id string) bool {
 		default:
 		}
 	}
-	return true
 }
 
 func (a *App) selectedID() string {

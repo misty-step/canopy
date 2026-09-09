@@ -1,80 +1,66 @@
-<section class="ticket-delivery" aria-labelledby="tickets-title">
+{{define "work-stage-badge"}}<span class="signal {{if eq .Stage "In progress"}}running{{else if and .NeedsAttention (eq .StageClass "ok")}}decision{{else}}{{.StageClass}}{{end}}">{{.Stage}}</span>{{end}}
+<section class="workbench {{if .SelectedWork}}has-selection{{end}}" data-workbench aria-labelledby="tickets-title">
   <div class="work-heading">
-    <h2 id="tickets-title">Work</h2>
-    <dl class="work-counts">
-      <div><dt>Observed</dt><dd>{{len .Delivery.Tickets}}</dd></div>
-      <div><dt>Needs you</dt><dd>{{.Delivery.NeedsAttention}}</dd></div>
-      <div><dt>In progress</dt><dd>{{.Delivery.InProgress}}</dd></div>
-      <div><dt>Merged</dt><dd>{{.Delivery.Delivered}}</dd></div>
-    </dl>
+    <div><h2 id="tickets-title">Work</h2><p>{{if .Delivery.NeedsAttention}}{{.Delivery.NeedsAttention}} {{if eq .Delivery.NeedsAttention 1}}item needs{{else}}items need{{end}} your judgment.{{else}}No decisions waiting in the observed work.{{end}}</p></div>
+    <span class="work-total">{{len .Delivery.Tickets}} observed</span>
   </div>
-
-  {{if .Delivery.NeedsAttention}}
-    <section class="attention-list" aria-labelledby="attention-title">
-      <h3 id="attention-title">Needs you</h3>
-      {{range .Delivery.Tickets}}{{if .NeedsAttention}}
-        <div class="attention-item">
-          <a class="work-key" href="/?instance={{$.ID}}&amp;system={{.System}}&amp;work={{.ID}}#work-evidence">{{.Key}}</a>
-          <div><strong>{{.NextAction}}</strong><p>{{.Stage}}{{if .ActionOwner}} · {{.ActionOwner}}{{end}}</p></div>
-          <a href="/?instance={{$.ID}}&amp;system={{.System}}&amp;work={{.ID}}#work-evidence">Inspect evidence</a>
-        </div>
-      {{end}}{{end}}
-    </section>
-  {{else}}
-    <p class="quiet-state">No action identified in the observed work. This is not permission to start new work.</p>
-  {{end}}
-
-  {{if .SelectedWork}}
-    {{if .SelectedTicket}}
-      {{template "ticket-detail" .}}
-    {{else}}
-      <section id="work-evidence" class="work-detail">
-        <h3>Work evidence unavailable</h3>
-        <p>This identity is not in the current observation. The source inventory has not been expanded to find it.</p>
-        <p class="mono">{{.SelectedSystem}} · {{.SelectedWork}}</p>
-        <a href="/?instance={{.ID}}">Return to observed work</a>
-      </section>
-    {{end}}
-  {{end}}
-
   {{if .Delivery.Tickets}}
-    <div id="work-table" class="data-table-wrap" data-preserve-scroll role="region" aria-label="Work and current decisions" tabindex="0">
-      <table class="data-table ticket-table">
-        <caption class="visually-hidden">Observed work, current decision, attributed execution time and provider cost. Open a work item for revision-bound evidence.</caption>
-        <thead><tr><th scope="col">Work and outcome</th><th scope="col">Current stage</th><th scope="col">Execution</th><th scope="col" class="number">Provider subtotal</th><th scope="col">Evidence</th></tr></thead>
-        <tbody>
-          {{range .Delivery.Tickets}}
-            <tr {{if and (eq .ID $.SelectedWork) (eq .System $.SelectedSystem)}}class="selected-work" aria-current="true"{{end}}>
-              <th scope="row" class="ticket-identity">
-                <a class="work-key" href="/?instance={{$.ID}}&amp;system={{.System}}&amp;work={{.ID}}#work-evidence">{{.Key}}</a>
-                {{if .Title}}<p>{{.Title}}</p>{{end}}
-              </th>
-              <td><span class="signal {{.StageClass}}">{{.Stage}}</span>{{if .ActionOwner}}<p class="muted">{{.ActionOwner}}</p>{{end}}{{if ne .TrackerFreshness "fresh"}}<p class="signal {{.TrackerFreshness}}">Tracker {{.TrackerFreshness}}</p>{{end}}</td>
-              <td><strong>{{.Duration}}</strong><p class="muted">{{.RunCount}} Runs{{if .LiveRuns}} · {{.LiveRuns}} active{{end}}{{if .FailedRuns}} · {{.FailedRuns}} nonzero exits{{end}}</p></td>
-              <td class="number"><strong class="provider-usd">{{.USDCompact}}</strong><p class="coverage-label {{.Coverage}}">{{.Coverage}}{{if ne .UsageFreshness "fresh"}} · {{.UsageFreshness}}{{end}}</p></td>
-              <td><a href="/?instance={{$.ID}}&amp;system={{.System}}&amp;work={{.ID}}#work-evidence">Inspect<span class="visually-hidden"> {{.Key}}</span></a>{{if .CurrentPRURL}}<p><a href="{{.CurrentPRURL}}" rel="noreferrer">Pull request</a></p>{{else if .PRURL}}<p><a href="{{.PRURL}}" rel="noreferrer">Merged PR</a></p>{{end}}</td>
-            </tr>
-          {{end}}
-        </tbody>
-      </table>
+    <div class="work-controls" data-work-controls hidden>
+      <div class="work-filters" role="group" aria-label="Filter work">
+        <button type="button" data-work-filter="all" aria-pressed="true">All work <span>{{len .Delivery.Tickets}}</span></button>
+        <button type="button" data-work-filter="attention" aria-pressed="false">Needs you <span>{{.Delivery.NeedsAttention}}</span></button>
+        <button type="button" data-work-filter="progress" aria-pressed="false">In progress <span>{{.Delivery.InProgress}}</span></button>
+        <button type="button" data-work-filter="merged" aria-pressed="false">Merged <span>{{.Delivery.Delivered}}</span></button>
+      </div>
+      <div class="work-search">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
+        <label class="visually-hidden" for="work-search">Find observed work</label>
+        <input id="work-search" type="search" placeholder="Find work…" autocomplete="off" spellcheck="false" aria-controls="work-list">
+        <kbd aria-hidden="true">/</kbd>
+      </div>
     </div>
-  {{else}}
-    <p class="empty">No work identities have been observed. Configure a bounded inventory or inspect Run provenance; Canopy never guesses from titles or branches.</p>
   {{end}}
-
+  <div class="workbench-body">
+    <div class="work-index">
+      {{if .Delivery.Tickets}}
+        <div class="work-columns" aria-hidden="true"><span>Work item</span><span>Current evidence</span><span>Execution</span><span>Provider cost</span></div>
+        <ol id="work-list" class="work-list" data-preserve-scroll>
+          {{range .Delivery.Tickets}}
+            <li data-work-row data-work-key="{{.Key}}" data-work-title="{{.Title}}" data-work-id="{{.ID}}" data-work-system="{{.System}}" data-needs-attention="{{.NeedsAttention}}" data-in-progress="{{eq .Stage "In progress"}}" data-merged="{{.Delivered}}" {{if and (eq .ID $.SelectedWork) (eq .System $.SelectedSystem)}}aria-current="true"{{end}}>
+              <a class="work-link" data-work-navigation href="/?instance={{$.ID}}&amp;system={{.System}}&amp;work={{.ID}}#work-evidence">
+                <span class="work-main"><span class="work-key">{{.Key}}</span><span class="work-title">{{if .Title}}{{.Title}}{{else}}{{.ID}}{{end}}</span></span>
+                <span class="work-stage">{{template "work-stage-badge" .}}{{if and .ActionOwner (ne .ActionOwner "None")}}<span class="stage-owner">{{.ActionOwner}}</span>{{end}}{{if ne .TrackerFreshness "fresh"}}<span class="source-state {{.TrackerFreshness}}">Tracker {{.TrackerFreshness}}</span>{{end}}</span>
+                <span class="work-execution"><strong>{{.Duration}}</strong><span>{{.RunCount}} {{if eq .RunCount 1}}Run{{else}}Runs{{end}}{{if .LiveRuns}}, {{.LiveRuns}} active{{end}}</span>{{if .FailedRuns}}<span class="execution-warning">{{.FailedRuns}} nonzero {{if eq .FailedRuns 1}}exit{{else}}exits{{end}}</span>{{end}}</span>
+                <span class="work-cost"><strong class="provider-usd">{{.USDCompact}}</strong>{{if ne .Coverage "unknown"}}<span class="coverage-label {{.Coverage}}">{{.Coverage}}{{if ne .UsageFreshness "fresh"}}, {{.UsageFreshness}}{{end}}</span>{{else if ne .UsageFreshness "fresh"}}<span class="source-state {{.UsageFreshness}}">Usage {{.UsageFreshness}}</span>{{end}}</span>
+              </a>
+            </li>
+          {{end}}
+        </ol>
+        <div class="filter-empty" data-work-empty hidden><h3>No matching work</h3><p>Search only covers work already in this observation.</p><button type="button" class="text-button" data-work-reset>Clear search and filters</button></div>
+        <p class="work-results" data-work-results role="status" aria-live="polite"></p>
+      {{else}}
+        <div class="empty-state"><span class="empty-mark" aria-hidden="true">∅</span><h3>No work in this observation</h3><p>No work identities have been observed. A bounded inventory or exact Run provenance is required; Canopy does not guess from titles or branches.</p><a href="#diagnostics">Inspect runtime details</a></div>
+      {{end}}
+    </div>
+    {{if .SelectedWork}}
+      {{if .SelectedTicket}}
+        {{template "ticket-detail" .}}
+      {{else}}
+        <section id="work-evidence" class="work-detail empty-state" aria-labelledby="unavailable-work-title"><h2 id="unavailable-work-title">Work evidence unavailable</h2><p>This identity is not in the current observation. The source inventory has not been expanded to find it.</p><p class="mono">{{.SelectedSystem}}<br>{{.SelectedWork}}</p><a data-work-navigation href="/?instance={{.ID}}">Return to observed work</a></section>
+      {{end}}
+    {{end}}
+  </div>
   {{if .Delivery.HistoryNotice}}<p class="evidence-warning">{{.Delivery.HistoryNotice}}</p>{{end}}
   {{if or .Delivery.UnattributedRuns .Delivery.ConflictingRuns}}
-    <p class="evidence-warning">{{.Delivery.UnattributedRuns}} unattributed Runs · {{.Delivery.ConflictingRuns}} conflicting associations. Unassigned provider subtotal {{.Delivery.UnassignedUSD}} is not included in ticket costs.</p>
+    <p class="evidence-warning">{{.Delivery.UnattributedRuns}} unattributed Runs; {{.Delivery.ConflictingRuns}} conflicting associations. Unassigned provider subtotal {{.Delivery.UnassignedUSD}} is not included in work costs.</p>
   {{end}}
   <details id="source-evidence" class="source-evidence">
-    <summary>Source freshness{{range .Delivery.Sources}} <span class="source-state {{.State}}">{{if eq .Name "Tach"}}Cost{{else}}{{.Name}}{{end}}: {{.State}}</span>{{end}}</summary>
+    <summary><span class="disclosure-title">Observation health</span><span class="source-statuses">{{range .Delivery.Sources}}<span class="source-state {{.State}}"><i aria-hidden="true"></i>{{if eq .Name "Tach"}}Cost{{else}}{{.Name}}{{end}} <span>{{.State}}</span></span>{{end}}</span></summary>
     <dl class="source-health">
-      {{range .Delivery.Sources}}
-        <div><dt>{{if eq .Name "Tach"}}Cost freshness (Tach){{else}}{{.Name}}{{end}}</dt><dd>{{.Message}}{{if .Observed}}<br><time>{{.Observed}}</time>{{end}}</dd></div>
-      {{end}}
+      {{range .Delivery.Sources}}<div><dt>{{if eq .Name "Tach"}}Provider cost / Tach{{else}}{{.Name}}{{end}}</dt><dd><span class="signal {{.State}}">{{.State}}</span><p>{{.Message}}</p>{{if .Observed}}<time>{{.Observed}}</time>{{end}}</dd></div>{{end}}
     </dl>
-    <p class="muted">A merge is not a deployment. Tracker state, review evidence and merge observations remain independent. Provider costs include attributed failed and cancelled Runs; unknown usage is not zero. External sources refresh about once a minute.</p>
-    {{if or .Delivery.UnattributedRuns .Delivery.ConflictingRuns}}<p class="muted">Unassigned usage: {{.Delivery.UnassignedInput}} input / {{.Delivery.UnassignedOutput}} output tokens; {{if .Delivery.UnassignedUsageSessions}}{{.Delivery.UnassignedPending}} pending receipts{{else}}pending count unknown{{end}}.</p>{{end}}
+    <p class="reading-note">A merge is not a deployment. Request state, review and merge are independently observed. Provider cost includes attributed failed and cancelled Runs; unknown usage is not zero. External sources refresh about once a minute.</p>
+    {{if or .Delivery.UnattributedRuns .Delivery.ConflictingRuns}}<p class="reading-note">Unassigned usage: {{.Delivery.UnassignedInput}} input / {{.Delivery.UnassignedOutput}} output tokens; {{if .Delivery.UnassignedUsageSessions}}{{.Delivery.UnassignedPending}} pending receipts{{else}}pending count unknown{{end}}.</p>{{end}}
   </details>
 </section>
 
@@ -83,44 +69,53 @@
 {{with .SelectedTicket}}
 <section id="work-evidence" class="work-detail" aria-labelledby="work-detail-title">
   <header class="work-detail-header">
-    <div><span class="work-key">{{.Key}}</span><h3 id="work-detail-title">{{.Title}}</h3></div>
-    <a href="/?instance={{$instance}}" aria-label="Close work evidence">Close</a>
+    <div class="detail-navigation"><span class="work-key">{{.Key}}</span><a class="close-work" data-work-navigation href="/?instance={{$instance}}" aria-label="Close work evidence">All work <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></a></div>
+    <h2 id="work-detail-title">{{if .Title}}{{.Title}}{{else}}{{.Key}}{{end}}</h2>
+    <div class="decision-line">{{template "work-stage-badge" .}}{{if and .ActionOwner (ne .ActionOwner "None")}}<span>With {{.ActionOwner}}</span>{{end}}</div>
+    {{if .NextAction}}<p class="next-action">{{.NextAction}}</p>{{end}}
   </header>
-  <div class="decision-line"><span class="signal {{.StageClass}}">{{.Stage}}</span>{{if .NextAction}}<strong>{{.NextAction}}</strong>{{end}}{{if .ActionOwner}}<span class="muted">{{.ActionOwner}}</span>{{end}}</div>
+  <dl class="delivery-measures">
+    <div><dt>Run execution</dt><dd>{{.Duration}}</dd><span>{{.RunCount}} {{if eq .RunCount 1}}Run{{else}}Runs{{end}}{{if .FailedRuns}}, {{.FailedRuns}} nonzero {{if eq .FailedRuns 1}}exit{{else}}exits{{end}}{{end}}</span></div>
+    <div><dt>Provider subtotal</dt><dd>{{.USDCompact}}</dd><span class="coverage-label {{.Coverage}}">{{.Coverage}} coverage{{if ne .UsageFreshness "fresh"}}, {{.UsageFreshness}}{{end}}</span></div>
+  </dl>
+  <section class="evidence-map" aria-labelledby="evidence-map-title">
+    <div class="section-heading"><h3 id="evidence-map-title">The evidence trail</h3><span>Recorded independently</span></div>
+    <ol class="evidence-trail">
+      <li class="evidence-step {{if and .Tracker (ne .Tracker "unknown")}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Request</span><strong>{{.Tracker}}</strong><span class="source-state {{.TrackerFreshness}}">{{.TrackerFreshness}}</span>{{if .URL}}<a href="{{.URL}}" rel="noreferrer">Open request</a>{{end}}</li>
+      <li class="evidence-step {{if .HeadSHA}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Candidate</span>{{if .HeadSHA}}<strong class="mono" title="{{.HeadSHA}}">{{printf "%.10s" .HeadSHA}}</strong>{{else}}<strong class="unobserved">Not observed</strong>{{end}}{{if .CurrentPRURL}}<a href="{{.CurrentPRURL}}/files" rel="noreferrer">Inspect diff</a>{{end}}</li>
+      <li class="evidence-step {{if .ReviewDecision}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Review</span>{{if .ReviewDecision}}<strong>{{.ReviewDecision}}</strong><span class="mono" title="{{.ReviewSHA}}">{{printf "%.10s" .ReviewSHA}}</span>{{else}}<strong class="unobserved">Not established</strong>{{end}}{{if .ReviewURL}}<a href="{{.ReviewURL}}" rel="noreferrer">Read receipt</a>{{end}}</li>
+      <li class="evidence-step {{if .MergeSHA}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Observed merge</span>{{if .MergeSHA}}<strong class="mono" title="{{.MergeSHA}}">{{printf "%.10s" .MergeSHA}}</strong><span>{{.Merger}}</span><time>{{.MergeTime}}</time>{{else}}<strong class="unobserved">Not merged</strong>{{end}}</li>
+    </ol>
+  </section>
   {{if .ReviewWarning}}<p class="evidence-warning">{{.ReviewWarning}}</p>{{end}}
-  <ol class="evidence-chain">
-    <li><span class="evidence-label">Work request</span><strong>{{.Tracker}}</strong>{{if .URL}}<a href="{{.URL}}" rel="noreferrer">Open tracker</a>{{end}}<span class="muted">{{.TrackerFreshness}}</span></li>
-    <li><span class="evidence-label">Candidate</span>{{if .HeadSHA}}<span class="mono" title="{{.HeadSHA}}">{{printf "%.12s" .HeadSHA}}</span>{{else}}<span class="muted">Not observed</span>{{end}}{{if .CurrentPRURL}}<a href="{{.CurrentPRURL}}/files" rel="noreferrer">Inspect diff</a>{{end}}</li>
-    <li><span class="evidence-label">Revision review</span>{{if .ReviewDecision}}<strong>{{.ReviewDecision}}</strong><span class="mono" title="{{.ReviewSHA}}">{{printf "%.12s" .ReviewSHA}}</span>{{else}}<span class="muted">Not established</span>{{end}}{{if .ReviewURL}}<a href="{{.ReviewURL}}" rel="noreferrer">Read receipt</a>{{end}}</li>
-    <li><span class="evidence-label">Observed merge</span>{{if .MergeSHA}}<span class="mono" title="{{.MergeSHA}}">{{printf "%.12s" .MergeSHA}}</span><span>{{.Merger}}</span><time>{{.MergeTime}}</time>{{else}}<span class="muted">Not merged</span>{{end}}</li>
-  </ol>
   {{if .ReviewSummary}}
-    <details id="review-evidence" class="ticket-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}">
-      <summary>Review findings and verification evidence</summary>
-      <pre id="review-summary" class="review-summary" data-preserve-scroll="{{.ReviewSHA}}" tabindex="0" aria-label="Review findings and verification evidence">{{.ReviewSummary}}</pre>
-      {{if .ReviewRunID}}<a class="mono" href="/logs?instance={{$instance}}&amp;run={{.ReviewRunID}}">Verifier Run {{.ReviewRunID}}</a>{{end}}
+    <details id="review-evidence" class="ticket-evidence review-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}" open>
+      <summary><span class="disclosure-title">Review findings</span><span class="disclosure-meta">{{.ReviewDecision}}</span></summary>
+      <p class="receipt-byline">Receipt by {{.ReviewAuthor}}{{if .ReviewSHA}} for <span class="mono" title="{{.ReviewSHA}}">{{printf "%.12s" .ReviewSHA}}</span>{{end}}</p>
+      <div id="review-summary" class="review-summary" data-preserve-scroll="{{.ReviewSHA}}" tabindex="0" role="region" aria-label="Review findings and verification evidence">{{.ReviewSummary}}</div>
+      {{if .ReviewRunID}}<a class="receipt-run-link" href="/logs?instance={{$instance}}&amp;run={{.ReviewRunID}}">Read the Verifier Run <span class="mono">{{.ReviewRunID}}</span></a>{{end}}
     </details>
   {{end}}
-  <details id="run-evidence" class="ticket-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}" open>
-    <summary>Run attempts <span class="muted">{{.RunCount}} served · {{.FailedRuns}} nonzero exits</span></summary>
+  <details id="run-evidence" class="ticket-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}">
+    <summary><span class="disclosure-title">Run attempts</span><span class="disclosure-meta">{{.RunCount}} served{{if .FailedRuns}}, {{.FailedRuns}} nonzero {{if eq .FailedRuns 1}}exit{{else}}exits{{end}}{{end}}</span></summary>
     {{if .Runs}}
       <ol class="ticket-run-list">
         {{range .Runs}}
           <li>
             <div class="run-attempt">
-              <div><strong>{{.Agent}}</strong><time>{{.Started}}</time><span class="mono">{{.ID}}</span></div>
-              <div><strong>{{.ProcessOutcome}}</strong><span>{{.Outcome}}</span>{{if .Completion}}<span>Completion: {{.Completion}}</span>{{end}}{{if .CompletionEvidence}}{{if eq .Completion "completed"}}<a href="{{.CompletionEvidence}}" rel="noreferrer">Effect receipt</a>{{else}}<span class="completion-reason">{{.CompletionEvidence}}</span>{{end}}{{end}}</div>
-              <div class="run-cost"><strong>{{.Duration}}</strong><span>{{.USD}} · {{.Coverage}}</span></div>
+              <div class="run-identity"><strong>{{.Agent}}</strong><time>{{.Started}}</time><span class="mono">{{.ID}}</span></div>
+              <div class="run-outcome"><strong>{{.ProcessOutcome}}</strong><span>{{.Outcome}}</span>{{if .Completion}}<span>Completion: {{.Completion}}</span>{{end}}{{if .CompletionEvidence}}{{if eq .Completion "completed"}}<a href="{{.CompletionEvidence}}" rel="noreferrer">Effect receipt</a>{{else}}<span class="completion-reason">{{.CompletionEvidence}}</span>{{end}}{{end}}</div>
+              <div class="run-cost"><strong>{{.Duration}}</strong><span>{{.USD}}</span><span class="coverage-label {{.Coverage}}">{{.Coverage}}</span></div>
               <a class="log-link" href="/logs?instance={{$instance}}&amp;run={{.ID}}" hx-get="/logs?instance={{$instance}}&amp;run={{.ID}}" hx-target="#log-{{.ID}}" hx-swap="outerHTML">Read log<span class="visually-hidden"> {{.ID}}</span></a>
             </div>
             <div id="log-{{.ID}}" class="log-output" hx-preserve="true"></div>
           </li>
         {{end}}
       </ol>
-    {{else}}<p class="muted">No unambiguous served Run is attributed to this work.</p>{{end}}
+    {{else}}<p class="reading-note">No unambiguous served Run is attributed to this work.</p>{{end}}
   </details>
   <details id="cost-evidence" class="ticket-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}">
-    <summary>Cost and timing <strong>{{.USDCompact}}</strong> <span class="muted">{{.Coverage}} · {{.UsageFreshness}}</span></summary>
+    <summary><span class="disclosure-title">Cost and timing</span><span class="disclosure-meta">{{.USDCompact}}, {{.Coverage}}</span></summary>
     <dl class="detail-metrics">
       <div><dt>Provider subtotal, full precision</dt><dd>{{.USD}}</dd></div>
       <div><dt>At first observed delivery</dt><dd>{{.FirstDeliveryUSD}}</dd></div>
@@ -129,14 +124,14 @@
       <div><dt>Earliest observed Run</dt><dd>{{.Started}}</dd></div>
       <div><dt>Unknown usage</dt><dd>{{.MissingUsage}} Runs</dd></div>
     </dl>
-    <p class="muted">{{if .UsageSessions}}{{.Generations}} known receipts · {{.Pending}} pending{{else}}Receipt and pending counts unknown{{end}}. Input / output tokens: {{.InputTokens}} / {{.OutputTokens}}. Cache read {{.CacheRead}}, cache write {{.CacheWrite}}, and reasoning {{.Reasoning}} overlap those totals and are not added.</p>
-    <p class="muted">Provider charges are not total delivery cost. Human effort and infrastructure are not included; partial coverage is a subtotal, not a final bill.</p>
+    <p class="reading-note">{{if .UsageSessions}}{{.Generations}} known receipts; {{.Pending}} pending{{else}}Receipt and pending counts unknown{{end}}. Input / output tokens: {{.InputTokens}} / {{.OutputTokens}}. Cache read {{.CacheRead}}, cache write {{.CacheWrite}}, and reasoning {{.Reasoning}} overlap those totals and are not added.</p>
+    <p class="reading-note">Provider charges are not total delivery cost. Human effort and infrastructure are not included; partial coverage is a subtotal, not a final bill.</p>
   </details>
   {{if .Notes}}<ul class="evidence-notes">{{range .Notes}}<li>{{.}}</li>{{end}}</ul>{{end}}
   <details id="work-identity" class="ticket-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}">
-    <summary>Source identities</summary>
-    <dl class="detail-metrics"><div><dt>System</dt><dd class="mono">{{.System}}</dd></div><div><dt>Immutable work ID</dt><dd class="mono">{{.ID}}</dd></div><div><dt>Candidate SHA</dt><dd class="mono">{{.HeadSHA}}</dd></div><div><dt>Reviewed SHA</dt><dd class="mono">{{.ReviewSHA}}</dd></div><div><dt>Merge SHA</dt><dd class="mono">{{.MergeSHA}}</dd></div></dl>
-    {{if .CreatedRuns}}<p class="muted">Created links are provenance, not additional served cost:</p><ul>{{range .CreatedRuns}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
+    <summary><span class="disclosure-title">Source identities</span><span class="disclosure-meta">Exact references</span></summary>
+    <dl class="detail-metrics identity-metrics"><div><dt>System</dt><dd class="mono">{{.System}}</dd></div><div><dt>Immutable work ID</dt><dd class="mono">{{.ID}}</dd></div><div><dt>Candidate SHA</dt><dd class="mono">{{if .HeadSHA}}{{.HeadSHA}}{{else}}Not observed{{end}}</dd></div><div><dt>Reviewed SHA</dt><dd class="mono">{{if .ReviewSHA}}{{.ReviewSHA}}{{else}}Not observed{{end}}</dd></div><div><dt>Merge SHA</dt><dd class="mono">{{if .MergeSHA}}{{.MergeSHA}}{{else}}Not observed{{end}}</dd></div></dl>
+    {{if .CreatedRuns}}<p class="reading-note">Created links are provenance, not additional served cost:</p><ul class="provenance-list">{{range .CreatedRuns}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
   </details>
 </section>
 {{end}}
