@@ -74,17 +74,17 @@ type LiveRunViewModel struct {
 }
 
 type RunViewModel struct {
-	RunID, Agent, Started string
-	Duration              string
-	DurationSeconds       float64
-	Exit                  int
-	ExitLabel             string
-	Status                string
-	Error                 string
-	TokensIn, TokensOut   int64
-	CacheRead, CacheWrite int64
-	Reasoning             int64
-	DefinitionSHA         string
+	RunID, Agent, Started                          string
+	Duration                                       string
+	DurationSeconds                                float64
+	Exit                                           int
+	ExitLabel                                      string
+	Status                                         string
+	Error                                          string
+	TokensIn, TokensOut                            int64
+	CacheRead, CacheWrite                          int64
+	Reasoning                                      int64
+	DefinitionSHA                                  string
 	ProcessOutcome, Completion, CompletionEvidence string
 }
 
@@ -105,6 +105,7 @@ type AgentViewModel struct {
 type ConfigViewModel struct {
 	Repo, Primary, PrimarySource string
 	Scope                        ScopeViewModel
+	Intent                       *IntentData
 	Agents                       []AgentConfigViewModel
 	Checks                       []CheckViewModel
 	Declarations                 []DeclarationViewModel
@@ -137,14 +138,14 @@ type DeclarationViewModel struct {
 }
 
 type LogView struct {
-	RunID    string
+	RunID                 string
 	InstanceID, TicketURL string
-	State    string
-	Retained bool
-	Complete bool
-	Exit     *int
-	Text     string
-	Error    string
+	State                 string
+	Retained              bool
+	Complete              bool
+	Exit                  *int
+	Text                  string
+	Error                 string
 }
 
 // classifyFreshness keeps a successful snapshot visible while making an
@@ -274,6 +275,7 @@ func configView(snapshot *Snapshot) ConfigViewModel {
 		Repo:          cfg.Repo,
 		Primary:       cfg.Primary,
 		PrimarySource: cfg.PrimarySource,
+		Intent:        cfg.Intent,
 		Agents:        make([]AgentConfigViewModel, 0, len(cfg.Agents)),
 		Checks:        make([]CheckViewModel, 0, len(cfg.Checks)),
 		Declarations:  make([]DeclarationViewModel, 0, len(snapshot.Declarations)),
@@ -399,7 +401,7 @@ func runView(run RunData) RunViewModel {
 		DurationSeconds: run.Duration, Duration: formatDuration(run.Duration), Exit: run.Exit,
 		ExitLabel: exitLabel, Status: status, Error: run.Error,
 		ProcessOutcome: processOutcome(run.Outcome, run.ProcessExit),
-		Completion: completion, CompletionEvidence: evidence,
+		Completion:     completion, CompletionEvidence: evidence,
 		TokensIn: run.TokensIn, TokensOut: run.TokensOut, CacheRead: run.CacheRead,
 		CacheWrite: run.CacheWrite, Reasoning: run.Reasoning, DefinitionSHA: run.DefinitionSHA,
 	}

@@ -21,7 +21,7 @@
                 <a class="instance-link" href="/?instance={{.ID}}"
                   aria-current="{{if .IsSelected}}true{{else}}false{{end}}">
                   <span class="state-dot {{.Freshness}}" aria-hidden="true"></span>
-                  <span class="instance-name"><strong>{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}</strong><span>{{if .Repo}}{{.Repo}}{{else}}{{.ID}}{{end}}</span></span>
+                  <span class="instance-name"><strong>{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}</strong><span>{{if .Repo}}{{.Repo}}{{else}}{{.ID}}{{end}}</span>{{template "mandate-summary" .}}</span>
                   <span class="instance-state">{{.Freshness}}{{if gt .ActiveRuns 0}}<br>{{.ActiveRuns}} active{{end}}</span>
                 </a>
               </li>

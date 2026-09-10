@@ -113,12 +113,22 @@ type CheckData struct {
 	Run  string `json:"run"`
 }
 
+// IntentData is policy declared in the effective Forest configuration, not
+// evidence that the Kernel or any external capability enforces that policy.
+type IntentData struct {
+	Purpose       string   `json:"purpose"`
+	Outcomes      []string `json:"outcomes"`
+	Constraints   []string `json:"constraints"`
+	ReleasePolicy string   `json:"release_policy"`
+}
+
 // ConfigData mirrors the loaded result of `forest config show --json`.
 type ConfigData struct {
 	Repo          string                     `json:"repo"`
 	Primary       string                     `json:"primary"`
 	PrimarySource string                     `json:"primary_source"`
 	Scope         *ScopeData                 `json:"scope,omitempty"`
+	Intent        *IntentData                `json:"intent,omitempty"`
 	Agents        map[string]AgentConfigData `json:"agents"`
 	Checks        []CheckData                `json:"checks"`
 }
@@ -177,24 +187,24 @@ type AuditData struct {
 // RunData mirrors one historical Ledger row, including all five retained token
 // classes and the optional recorded failure reason.
 type RunData struct {
-	RunID         string   `json:"run_id"`
-	Agent         string   `json:"agent"`
-	RequestID     string   `json:"request_id,omitempty"`
-	Work          *WorkRef `json:"work,omitempty"`
-	Started       string   `json:"started"`
-	Duration      float64  `json:"duration"`
-	Exit          int      `json:"exit"`
+	RunID         string          `json:"run_id"`
+	Agent         string          `json:"agent"`
+	RequestID     string          `json:"request_id,omitempty"`
+	Work          *WorkRef        `json:"work,omitempty"`
+	Started       string          `json:"started"`
+	Duration      float64         `json:"duration"`
+	Exit          int             `json:"exit"`
 	ProcessExit   *int            `json:"process_exit,omitempty"`
 	Outcome       string          `json:"outcome,omitempty"`
 	Completion    *CompletionData `json:"completion,omitempty"`
-	NoWork        bool     `json:"no_work,omitempty"`
-	TokensIn      int64    `json:"tokens_in"`
-	TokensOut     int64    `json:"tokens_out"`
-	CacheRead     int64    `json:"cache_read"`
-	CacheWrite    int64    `json:"cache_write"`
-	Reasoning     int64    `json:"reasoning"`
-	Error         string   `json:"error,omitempty"`
-	DefinitionSHA string   `json:"definition_sha,omitempty"`
+	NoWork        bool            `json:"no_work,omitempty"`
+	TokensIn      int64           `json:"tokens_in"`
+	TokensOut     int64           `json:"tokens_out"`
+	CacheRead     int64           `json:"cache_read"`
+	CacheWrite    int64           `json:"cache_write"`
+	Reasoning     int64           `json:"reasoning"`
+	Error         string          `json:"error,omitempty"`
+	DefinitionSHA string          `json:"definition_sha,omitempty"`
 }
 
 // CompletionData is a profile observation, independent of process exit.
@@ -207,16 +217,16 @@ type CompletionData struct {
 
 // LiveRunData mirrors one currently running Run.
 type LiveRunData struct {
-	RunID     string   `json:"run_id"`
-	Agent     string   `json:"agent"`
-	RequestID string   `json:"request_id,omitempty"`
-	Work      *WorkRef `json:"work,omitempty"`
-	StartedAt string   `json:"started_at"`
-	Elapsed   string   `json:"elapsed"`
+	RunID       string          `json:"run_id"`
+	Agent       string          `json:"agent"`
+	RequestID   string          `json:"request_id,omitempty"`
+	Work        *WorkRef        `json:"work,omitempty"`
+	StartedAt   string          `json:"started_at"`
+	Elapsed     string          `json:"elapsed"`
 	ProcessExit *int            `json:"process_exit,omitempty"`
 	Outcome     string          `json:"outcome,omitempty"`
 	Completion  *CompletionData `json:"completion,omitempty"`
-	Cancel    string   `json:"cancel"`
+	Cancel      string          `json:"cancel"`
 }
 
 // AgentLedgerData is the whole-Ledger aggregate for one historical agent. An
@@ -236,13 +246,13 @@ type AgentLedgerData struct {
 
 // RunFailureData identifies one recent non-zero Ledger row.
 type RunFailureData struct {
-	RunID string `json:"run_id"`
-	Agent string `json:"agent"`
-	Exit  int    `json:"exit"`
+	RunID       string          `json:"run_id"`
+	Agent       string          `json:"agent"`
+	Exit        int             `json:"exit"`
 	ProcessExit *int            `json:"process_exit,omitempty"`
 	Outcome     string          `json:"outcome,omitempty"`
 	Completion  *CompletionData `json:"completion,omitempty"`
-	Error string `json:"error,omitempty"`
+	Error       string          `json:"error,omitempty"`
 }
 
 // LedgerData contains aggregates computed over every Ledger row, not only the
