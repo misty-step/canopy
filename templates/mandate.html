@@ -1,0 +1,21 @@
+<section class="mandate" aria-labelledby="mandate-title">
+  <div class="section-heading"><h2 id="mandate-title">Mandate</h2>{{if .Config.Intent}}<span class="signal">Declared policy</span>{{end}}</div>
+  {{if eq .Freshness "unknown"}}
+    <p class="reading-note">Mandate not observed. A successful configuration observation is needed before Canopy can show this instance's purpose or policy.</p>
+  {{else if .Config.Intent}}
+    <p class="mandate-purpose">{{if .Config.Intent.Purpose}}{{.Config.Intent.Purpose}}{{else}}Purpose not declared.{{end}}</p>
+    <p class="reading-note">Declared in effective Forest configuration, not proof of enforcement.{{if ne .Freshness "fresh"}} This retained declaration may be out of date.{{end}} Live activity and delivery evidence are separate observations.</p>
+    <details id="mandate-details" class="ticket-evidence">
+      <summary><span class="disclosure-title">Outcomes, constraints and release policy</span></summary>
+      <div class="mandate-grid">
+        <section aria-labelledby="mandate-outcomes"><h3 id="mandate-outcomes">Intended outcomes</h3>{{if .Config.Intent.Outcomes}}<ul>{{range .Config.Intent.Outcomes}}<li>{{if .}}{{.}}{{else}}Outcome not specified.{{end}}</li>{{end}}</ul>{{else}}<p class="reading-note">No outcomes declared.</p>{{end}}</section>
+        <section aria-labelledby="mandate-constraints"><h3 id="mandate-constraints">Declared constraints</h3>{{if .Config.Intent.Constraints}}<ul>{{range .Config.Intent.Constraints}}<li>{{if .}}{{.}}{{else}}Constraint not specified.{{end}}</li>{{end}}</ul>{{else}}<p class="reading-note">No constraints declared. This does not mean unrestricted authority.</p>{{end}}</section>
+        <section class="mandate-release" aria-labelledby="mandate-release"><h3 id="mandate-release">Declared release policy</h3><p>{{if .Config.Intent.ReleasePolicy}}{{.Config.Intent.ReleasePolicy}}{{else}}No release policy declared. This is not permission to publish.{{end}}</p></section>
+      </div>
+    </details>
+  {{else}}
+    <p class="reading-note">No mandate declared in the observed configuration. This Forest may predate intent metadata; Canopy does not infer purpose or authority from its repository, roles or activity.{{if ne .Freshness "fresh"}} The configuration observation is stale.{{end}}</p>
+  {{end}}
+</section>
+
+{{define "mandate-summary"}}<span class="mandate-summary">{{if eq .Freshness "unknown"}}Mandate not observed{{else if .Config.Intent}}{{if .Config.Intent.Purpose}}Declared purpose: {{.Config.Intent.Purpose}}{{else}}Purpose not declared{{end}}{{else}}No mandate declared{{end}}</span>{{end}}

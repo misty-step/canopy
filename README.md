@@ -47,6 +47,29 @@ The index rounds for reading; work details retain full precision and the
 first-delivery allocation caveats. Human effort and infrastructure are not part
 of this provider subtotal.
 
+## Read the mandate
+
+The instance view and fleet switcher project optional `intent` from the effective
+`forest config show --json` response. Its fields are `purpose` (string),
+`outcomes` (string array), `constraints` (string array), and `release_policy`
+(string). This is **declared policy**, not proof of enforcement or a new Canopy
+configuration source. The mandate disclosure reuses the existing native
+disclosure and refresh behavior.
+
+An unobserved configuration, an absent intent object, explicitly empty fields
+and a stale retained declaration remain distinct. Canopy never infers mandate
+or release authority from a repository name, role prompt, lack of activity or
+missing metadata. Changing intent still happens outside this read-only surface.
+
+## Design authority
+
+[`DESIGN.md`](DESIGN.md) preserves the approved visual identity and is the single
+normative token source. Pinned Google alpha-format tooling generates the committed
+plain CSS sheet; no Tailwind, React or runtime Node dependency is introduced.
+Follow its generation and conformance commands when changing tokens or components.
+Browser chrome and the standalone favicon keep checked mirrors of the canvas and
+primary colors because those assets cannot inherit the page's custom properties.
+
 ## Run
 
 Requirements:

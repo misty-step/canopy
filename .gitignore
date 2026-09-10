@@ -2,3 +2,4 @@ canopy
 canopy.json
 .iron-forest/bin/
 .iron-forest/runtime/
+node_modules/
