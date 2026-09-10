@@ -159,11 +159,12 @@ Set `automation_login` to the dedicated principal expected to publish review rec
 
 Use the exact GitHub user login (for example, `repository-worker`) or GitHub App
 bot login (for example, `iron-forest[bot]`); keep the literal `[bot]` suffix.
-Names accept ASCII letters and digits separated by single hyphens, with no
-leading or trailing hyphen and at most 39 characters including the optional
-`[bot]` suffix. Canopy preserves the identity as configured. This exception is
+Canopy preserves the complete configured identity. Login safety validation permits
+that one terminal suffix while still rejecting an empty name, other brackets,
+path separators, whitespace, controls and unsafe punctuation; it does not attempt
+to reproduce GitHub's account or App registration policies. This exception is
 only for `forge.automation_login`; instance, work-item and Run route identifiers
-still reject brackets, path separators and other unsafe punctuation.
+still reject brackets.
 
 A different accountable author or an unconfigured `automation_login` produces a named caveat without suppressing an otherwise valid review or completed delivery. Freshly observed missing, invalid or ambiguous receipts leave an open candidate `Awaiting verification` with the specific reason; unavailable or stale sources read `Evidence unavailable`. Review, current tracker state and historical delivery are separate; reopening work does not erase earlier observed merges or costs. Neither an author match nor a GitHub `User` merger proves credential isolation or human intent. Host/forge policy, not Canopy, enforces separation between worker and human authority.
 
