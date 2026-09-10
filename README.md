@@ -157,6 +157,14 @@ Forge credentials need read access to the declared repository's pull requests an
 
 Set `automation_login` to the dedicated principal expected to publish review receipts. It qualifies author trust; it does not invalidate historical receipts from other accountable accounts. A usable `forest.review.v1` receipt requires a positive account ID, a `User` or `Bot` author with `OWNER`, `MEMBER` or `COLLABORATOR` repository association, the exact current candidate, matching immutable work provenance, a known Verifier Run, its lifetime window and a canonical comment URL. Request IDs are opaque; no profile-specific naming convention is required.
 
+Use the exact GitHub user login (for example, `repository-worker`) or GitHub App
+bot login (for example, `iron-forest[bot]`); keep the literal `[bot]` suffix.
+Names accept ASCII letters and digits separated by single hyphens, with no
+leading or trailing hyphen and at most 39 characters including the optional
+`[bot]` suffix. Canopy preserves the identity as configured. This exception is
+only for `forge.automation_login`; instance, work-item and Run route identifiers
+still reject brackets, path separators and other unsafe punctuation.
+
 A different accountable author or an unconfigured `automation_login` produces a named caveat without suppressing an otherwise valid review or completed delivery. Freshly observed missing, invalid or ambiguous receipts leave an open candidate `Awaiting verification` with the specific reason; unavailable or stale sources read `Evidence unavailable`. Review, current tracker state and historical delivery are separate; reopening work does not erase earlier observed merges or costs. Neither an author match nor a GitHub `User` merger proves credential isolation or human intent. Host/forge policy, not Canopy, enforces separation between worker and human authority.
 
 When a separately scoped forge credential is unavailable, the R90 worker's authenticated observer can provide the narrow GitHub metadata read capability instead. Set `forge.endpoint` to the **same origin as `observer_url`** with path `/v1/github`, retain `web_url: https://github.com`, and use the same `FOREST_OBSERVATION_TOKEN` environment-variable name. The observer permits bounded GET metadata for the declared repository: `pulls/<id>`, paginated `pulls/<id>/reviews`, and paginated `issues/<id>/comments`. It projects required receipt/identity fields, constructs its own upstream HTTPS requests, strips incoming headers and bodies, and refuses redirects. Its worker GitHub credential never enters Canopy. A private HTTP forge source with another origin, path or credential name is rejected.

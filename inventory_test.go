@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +108,76 @@ func TestConfiguredWorkInventoryAndReceiptAuthorityStayBoundedIdentifiers(t *tes
 		unsafe := writeInventoryFixture(t, `{"instances": [{"id": "vector", "label": "Vector", "root": "/data/vector", "forest": "/usr/bin/forest", "sources": `+sources+`}]}`)
 		if _, err := LoadInventory(unsafe); err == nil {
 			t.Fatalf("unsafe or ambiguous configured identity accepted: %s", sources)
+		}
+	}
+}
+
+func TestLoadInventoryGitHubAutomationLogin(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		login string
+		valid bool
+	}{
+		{"unconfigured", "", true},
+		{"user", "Forest-Automation", true},
+		{"app bot", "iron-forest[bot]", true},
+		{"longest user", strings.Repeat("a", 39), true},
+		{"longest app bot", strings.Repeat("a", 34) + "[bot]", true},
+		{"too long", strings.Repeat("a", 40), false},
+		{"too long app bot", strings.Repeat("a", 35) + "[bot]", false},
+		{"empty bot name", "[bot]", false},
+		{"leading hyphen", "-forest", false},
+		{"trailing hyphen", "forest-[bot]", false},
+		{"consecutive hyphens", "iron--forest", false},
+		{"malformed suffix", "forest[Bot]", false},
+		{"repeated suffix", "forest[bot][bot]", false},
+		{"suffix not terminal", "forest[bot]extra", false},
+		{"path", "../forest[bot]", false},
+		{"backslash", `forest\bot`, false},
+		{"query", "forest?admin", false},
+		{"shell", "forest;echo", false},
+		{"whitespace", "forest bot", false},
+		{"control", "forest\n", false},
+		{"nul", "forest\x00", false},
+		{"non ASCII", "forést", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			login, err := json.Marshal(test.login)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := writeInventoryFixture(t, `{
+				"instances": [{"id": "seedbed", "label": "Seedbed", "root": "/data/seedbed", "forest": "/usr/bin/forest",
+					"sources": {"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ",
+						"web_url": "https://github.com", "automation_login": `+string(login)+`}}}]
+			}`)
+			inventory, err := LoadInventory(path)
+			if !test.valid {
+				if err == nil {
+					t.Fatalf("unsafe or malformed automation login %q accepted", test.login)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("valid automation login %q rejected: %v", test.login, err)
+			}
+			if got := inventory.Instances[0].Sources.Forge.AutomationLogin; got != test.login {
+				t.Fatalf("automation identity changed: got %q, want %q", got, test.login)
+			}
+		})
+	}
+}
+
+func TestAppBotSuffixRemainsInvalidForRouteIdentifiers(t *testing.T) {
+	for _, instance := range []string{
+		`{"id": "iron-forest[bot]", "label": "Bot", "root": "/data/seedbed", "forest": "/usr/bin/forest"}`,
+		`{"id": "seedbed", "label": "Seedbed", "root": "/data/seedbed", "forest": "/usr/bin/forest",
+			"sources": {"habitat": {"endpoint": "https://habitat.example", "token_env": "HABITAT_READ",
+				"system": "https://habitat.example", "work_item_ids": ["iron-forest[bot]"]}}}`,
+	} {
+		path := writeInventoryFixture(t, `{"instances": [`+instance+`]}`)
+		if _, err := LoadInventory(path); err == nil {
+			t.Fatalf("App bot suffix escaped automation login into a route identity: %s", instance)
 		}
 	}
 }

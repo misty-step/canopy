@@ -47,6 +47,12 @@ const sourceRefreshInterval = time.Minute
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// GitHub automation identities are user logins or App slugs with a literal
+// terminal [bot] suffix, not route identifiers. Preserve the complete login for
+// receipt-author matching; only ASCII alphanumerics and single internal hyphens
+// are allowed in the name, with at most 39 characters including the suffix.
+var githubAutomationLogin = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*(\[bot\])?$`)
+
 func validateSourceEndpoint(raw string, private bool) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(raw, "#") {
@@ -111,8 +117,8 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 			return fmt.Errorf("forge.web_url must be a web origin")
 		}
 		if sources.Forge.AutomationLogin != "" {
-			if err := validateRouteIdentifier(sources.Forge.AutomationLogin, "forge automation login"); err != nil {
-				return err
+			if login := sources.Forge.AutomationLogin; len(login) > 39 || !githubAutomationLogin.MatchString(login) {
+				return fmt.Errorf("forge automation login %q must be a GitHub user login or App bot login (at most 39 characters)", login)
 			}
 		}
 	}
