@@ -4,7 +4,7 @@ Canopy is a read-only view of one software change and its evidence across indepe
 
 ## Boundary
 
-Canopy treats every Forest as an external service. It invokes only the versioned `forest.cli.v2` JSON interface, locally, through `ssh`, or through an authenticated private observation endpoint. It does not import Iron Forest code, read `.iron-forest/runtime` files, open the Ledger database, or expose mutation routes. Optional Habitat, Tach and GitHub-compatible forge APIs supply independent read-only ticket and provider evidence; Canopy keeps no money ledger.
+Canopy treats every Forest as an external service. It invokes only the versioned `forest.cli.v2` JSON interface, locally, through `ssh`, or through an authenticated private observation endpoint. It does not import Iron Forest code, read `.iron-forest/runtime` files, open the Ledger database, or expose mutation routes. Optional Habitat and GitHub-compatible forge APIs supply independent read-only ticket and pull-request evidence. Provider cost is read from the native Run history the collector already fetches: Canopy keeps no money ledger, holds no accounting API credential and polls no accounting service.
 
 Current status and optional details have independent clocks. A failed status read retains the last successful status and marks it stale; no first status success is unknown. A version, configuration, declaration, history or external-source failure cannot hold or renew current status. Each failed optional section retains only its own last-good observation with its original timestamp; first failures remain unknown.
 
@@ -41,8 +41,9 @@ itself is refreshed, not frozen.
 Run logs load on demand within the selected work. Their ordinary GET links also
 open a complete page with a return link. Known evicted logs remain distinct from
 unknown Runs or failed reads. Diagnostics label the Ledger percentage as an
-**exit-zero rate**, never agent quality. New Forest `outcome`, `process_exit`
-and `completion` fields are independent; legacy missing facts remain unknown.
+**exit-zero rate**, never agent quality. New Forest `outcome`, `process_exit`,
+`completion` and `provider_cost` fields are independent; legacy missing facts
+remain unknown, and an unreadable charge never rewrites them.
 
 For explicitly recorded cancelled executions, Run attempts can disclose optional
 `recovery` with a private repo-relative native Git worktree path and optional base
@@ -51,10 +52,10 @@ disposal—not an archive, download, restore instruction, candidate revision or
 permission to resume. Missing recovery stays unknown, not clean. Canopy never
 reads or serves worktree contents and does not manage expiry.
 
-Provider cost is a subtotal with explicit complete/partial/unknown coverage.
-The index rounds for reading; work details retain full precision and the
-first-delivery allocation caveats. Human effort and infrastructure are not part
-of this provider subtotal.
+Provider cost is the direct charge each Run reports, with explicit
+complete/partial/unknown coverage. The index rounds for reading; work details
+retain full precision and the first-delivery allocation caveats. Human effort and
+infrastructure are not part of this provider subtotal.
 
 ## Read the mandate
 
@@ -84,7 +85,7 @@ primary colors because those assets cannot inherit the page's custom properties.
 Requirements:
 
 - Go 1.26 or newer
-- An installed `.iron-forest/bin/forest` binary that emits `forest.cli.v2` JSON envelopes, including additive Run `request_id`/`work` provenance
+- An installed `.iron-forest/bin/forest` binary that emits `forest.cli.v2` JSON envelopes, including additive Run `request_id`/`work` provenance and the optional `provider_cost` object
 - `ssh` in `PATH` for SSH instances, or an authenticated HTTP observation service for private Fly instances
 
 ```sh
@@ -134,7 +135,7 @@ Local discovery recognizes only `.iron-forest/config.yaml` plus an executable `.
 
 ### Optional delivery sources
 
-Each instance can add `sources`. Omitting an entry disables that external source explicitly; the UI says unavailable/unknown, not zero. Inventory accepts endpoint URLs and credential **environment-variable names**, never secret values. Every configured credential is required independently: there is no fallback to Habitat write, Tach ingest, OpenRouter, or worker credentials.
+Each instance can add `sources`. Omitting an entry disables that external source explicitly; the UI says unavailable/unknown, not zero. Inventory accepts endpoint URLs and credential **environment-variable names**, never secret values. Every configured credential is required independently: there is no fallback to Habitat write, observer, forge or worker credentials. Provider cost needs no credential at all, because it arrives inside the Run records Forest already returns.
 
 ```json
 {
@@ -153,7 +154,7 @@ Each instance can add `sources`. Omitting an entry disables that external source
 }
 ```
 
-Add `tach` with `endpoint` set to the deployed Tach ingest function **base URL** (not the query path) and `token_env` set to `TACH_QUERY_TOKEN`. Provision that name with a scoped Tach **query** credential. The exact server-side request is `POST <endpoint>/v1/provider-usage/query`, header `x-query-key`, body `{"source":"iron-forest","session_ids":["exact-run-id"]}` in batches of at most 50 unique IDs. Canopy accepts only `tach.provider-usage.v1`; it never estimates provider prices or queries a provider-management API.
+Provider cost is not a configured source. A Run record may carry an optional `provider_cost` object — `{"provider":"openrouter","cost_usd":0.0125,"complete":true}` — and Canopy then displays that direct charged amount. An absent, unreadable or foreign-provider object is **unknown**, never zero; an explicit `0` is a real charge of nothing; `complete:false` means charged responses were still open, so the amount is a subtotal. Because the field is optional, malformed accounting cannot fail the Run record, suppress its software outcome, or gate a first observation. Canopy never derives a price from catalog metadata and never calls a provider-management API to reconcile it.
 
 Habitat uses a complete Bearer token from its named environment variable (including `habitat:` when applicable), authorized for read access to the pilot module/work items. It reads `/api/work/run-links` by exact Run IDs with all pages, `/api/work/items/<immutable-id>`, and `/api/work/items/<immutable-id>/history`. Set `system` to the **exact** namespace in Forest's `work.system`; identity is never normalized from a ticket title, branch or status. Habitat link scope covers current nondeleted items in the credential's authorized modules, not the whole tracker.
 
@@ -183,11 +184,11 @@ Habitat currently returns at most 50 item-history changes. When that history is 
 
 Status invokes only `forest status --json --root ...` at the selected/fleet interval. Stable details and external sources each have a separately serialized, cancellable lane per instance; neither runs inside status collection. Detail collection has a 30-second total bound: version and configuration get up to 5 seconds each, declarations up to 10 seconds, and paginated history up to 10 seconds. Declarations are limited to 256 and history to 100,000 rows; exceeding a limit is an incomplete observation, never a complete ledger. Optional lanes wait about a minute between attempts; each external collection is bounded to 30 seconds. Version/configuration/declaration/history freshness expires after 91 seconds, independently of status. Per-source success clocks are never renewed by a failed read. State is volatile and removed with a discovered instance; late cancelled results cannot overwrite a readded instance.
 
-Ticket totals deduplicate exact Run IDs across history/recent/live projections and exact served links. Created links do not assign served cost; conflicting primary associations assign cost to neither ticket and are visible. Failed/cancelled Run usage stays included. Token subcategories are shown separately, never blindly added to input/output. Null metrics, incomplete/pending coverage, missing Runs and explicit zero remain distinct; known values are subtotals until coverage is complete.
+Ticket totals deduplicate exact Run IDs across history/recent/live projections and exact served links. Created links do not assign served cost; conflicting primary associations assign cost to neither ticket and are visible. Failed/cancelled Run charges stay included. Token subcategories are shown separately, never blindly added to input/output. Missing Runs, unreported charges and explicit zero remain distinct: a ticket reads `complete` only when every attributed Run reports a complete charge and its history window is still fresh, `partial` when some charges are known or the window may have moved on, and `unknown` when no charge is reported at all.
 
 Lifetime provider USD is a known subtotal across all attributed Runs, including
 reopened work. First-delivery USD is separate: it requires proven first-merge
-history and complete provider receipts for all pre-merge Runs. A live Run or a
+history and a complete reported charge for every pre-merge Run. A live Run or a
 Run spanning that merge makes the allocation unknown; Canopy never prorates it.
 
 ### Private HTTP observation

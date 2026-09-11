@@ -32,7 +32,7 @@
                 <span class="work-main"><span class="work-key">{{.Key}}</span><span class="work-title">{{if .Title}}{{.Title}}{{else}}{{.ID}}{{end}}</span></span>
                 <span class="work-stage">{{template "work-stage-badge" .}}{{if and .ActionOwner (ne .ActionOwner "None")}}<span class="stage-owner">{{.ActionOwner}}</span>{{end}}{{if ne .TrackerFreshness "fresh"}}<span class="source-state {{.TrackerFreshness}}">Tracker {{.TrackerFreshness}}</span>{{end}}</span>
                 <span class="work-execution"><strong>{{.Duration}}</strong><span>{{.RunCount}} {{if eq .RunCount 1}}Run{{else}}Runs{{end}}{{if .LiveRuns}}, {{.LiveRuns}} active{{end}}</span>{{if .FailedRuns}}<span class="execution-warning">{{.FailedRuns}} nonzero {{if eq .FailedRuns 1}}exit{{else}}exits{{end}}</span>{{end}}</span>
-                <span class="work-cost"><strong class="provider-usd">{{.USDCompact}}</strong>{{if ne .Coverage "unknown"}}<span class="coverage-label {{.Coverage}}">{{.Coverage}}{{if ne .UsageFreshness "fresh"}}, {{.UsageFreshness}}{{end}}</span>{{else if ne .UsageFreshness "fresh"}}<span class="source-state {{.UsageFreshness}}">Usage {{.UsageFreshness}}</span>{{end}}</span>
+                <span class="work-cost"><strong class="provider-usd">{{.USDCompact}}</strong>{{if ne .Coverage "unknown"}}<span class="coverage-label {{.Coverage}}">{{.Coverage}}</span>{{end}}</span>
               </a>
             </li>
           {{end}}
@@ -56,12 +56,12 @@
     <p class="evidence-warning">{{.Delivery.UnattributedRuns}} unattributed Runs; {{.Delivery.ConflictingRuns}} conflicting associations. Unassigned provider subtotal {{.Delivery.UnassignedUSD}} is not included in work costs.</p>
   {{end}}
   <details id="source-evidence" class="source-evidence">
-    <summary><span class="disclosure-title">Observation health</span><span class="source-statuses">{{range .Delivery.Sources}}<span class="source-state {{.State}}"><i aria-hidden="true"></i>{{if eq .Name "Tach"}}Cost{{else}}{{.Name}}{{end}} <span>{{.State}}</span></span>{{end}}</span></summary>
+    <summary><span class="disclosure-title">Observation health</span><span class="source-statuses">{{range .Delivery.Sources}}<span class="source-state {{.State}}"><i aria-hidden="true"></i>{{.Name}} <span>{{.State}}</span></span>{{end}}</span></summary>
     <dl class="source-health">
-      {{range .Delivery.Sources}}<div><dt>{{if eq .Name "Tach"}}Provider cost / Tach{{else}}{{.Name}}{{end}}</dt><dd><span class="signal {{.State}}">{{.State}}</span><p>{{.Message}}</p>{{if .Observed}}<time>{{.Observed}}</time>{{end}}</dd></div>{{end}}
+      {{range .Delivery.Sources}}<div><dt>{{.Name}}</dt><dd><span class="signal {{.State}}">{{.State}}</span><p>{{.Message}}</p>{{if .Observed}}<time>{{.Observed}}</time>{{end}}</dd></div>{{end}}
     </dl>
-    <p class="reading-note">A merge is not a deployment. Request state, review and merge are independently observed. Provider cost includes attributed failed and cancelled Runs; unknown usage is not zero. External sources refresh about once a minute.</p>
-    {{if or .Delivery.UnattributedRuns .Delivery.ConflictingRuns}}<p class="reading-note">Unassigned usage: {{.Delivery.UnassignedInput}} input / {{.Delivery.UnassignedOutput}} output tokens; {{if .Delivery.UnassignedUsageSessions}}{{.Delivery.UnassignedPending}} pending receipts{{else}}pending count unknown{{end}}.</p>{{end}}
+    <p class="reading-note">A merge is not a deployment. Request state, review and merge are independently observed. Provider cost is the charge each Run reports; it includes attributed failed and cancelled Runs, and unknown usage is not zero. External sources refresh about once a minute.</p>
+    {{if or .Delivery.UnattributedRuns .Delivery.ConflictingRuns}}<p class="reading-note">Unassigned usage: {{.Delivery.UnassignedInput}} input / {{.Delivery.UnassignedOutput}} output tokens; reported provider cost {{.Delivery.UnassignedUSD}}.</p>{{end}}
   </details>
 </section>
 
@@ -77,7 +77,7 @@
   </header>
   <dl class="delivery-measures">
     <div><dt>Run execution</dt><dd>{{.Duration}}</dd><span>{{.RunCount}} {{if eq .RunCount 1}}Run{{else}}Runs{{end}}{{if .FailedRuns}}, {{.FailedRuns}} nonzero {{if eq .FailedRuns 1}}exit{{else}}exits{{end}}{{end}}</span></div>
-    <div><dt>Provider subtotal</dt><dd>{{.USDCompact}}</dd><span class="coverage-label {{.Coverage}}">{{.Coverage}} coverage{{if ne .UsageFreshness "fresh"}}, {{.UsageFreshness}}{{end}}</span></div>
+    <div><dt>Provider subtotal</dt><dd>{{.USDCompact}}</dd><span class="coverage-label {{.Coverage}}">{{.Coverage}} coverage</span></div>
   </dl>
   <section aria-labelledby="current-execution-title">
     <h3 id="current-execution-title">Current execution</h3>
@@ -148,9 +148,9 @@
       <div><dt>Run execution total</dt><dd>{{.Duration}}</dd></div>
       <div><dt>Wall-clock to first delivery</dt><dd>{{.Latency}}</dd></div>
       <div><dt>Earliest observed Run</dt><dd>{{.Started}}</dd></div>
-      <div><dt>Unknown usage</dt><dd>{{.MissingUsage}} Runs</dd></div>
+      <div><dt>Runs without a reported charge</dt><dd>{{.CostUnknown}}</dd></div>
     </dl>
-    <p class="reading-note">{{if .UsageSessions}}{{.Generations}} known receipts; {{.Pending}} pending{{else}}Receipt and pending counts unknown{{end}}. Input / output tokens: {{.InputTokens}} / {{.OutputTokens}}. Cache read {{.CacheRead}}, cache write {{.CacheWrite}}, and reasoning {{.Reasoning}} overlap those totals and are not added.</p>
+    <p class="reading-note">{{if .RunCount}}{{.CostReported}} of {{.RunCount}} served Runs report a provider charge{{if not .CostReported}}; nothing is assumed to be free{{end}}. Input / output tokens: {{.InputTokens}} / {{.OutputTokens}}. Cache read {{.CacheRead}}, cache write {{.CacheWrite}}, and reasoning {{.Reasoning}} overlap those totals and are not added.{{else}}No served Run is attributed here, so no usage is claimed.{{end}}</p>
     <p class="reading-note">Provider charges are not total delivery cost. Human effort and infrastructure are not included; partial coverage is a subtotal, not a final bill.</p>
   </details>
   {{if .Notes}}<ul class="evidence-notes">{{range .Notes}}<li>{{.}}</li>{{end}}</ul>{{end}}

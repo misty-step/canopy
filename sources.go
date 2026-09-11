@@ -39,7 +39,6 @@ type ForgeSource struct {
 
 type TicketSources struct {
 	Habitat *HabitatSource `json:"habitat,omitempty"`
-	Tach    *ReadSource    `json:"tach,omitempty"`
 	Forge   *ForgeSource   `json:"forge,omitempty"`
 }
 
@@ -92,11 +91,6 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 				return fmt.Errorf("habitat.work_item_ids contains duplicate %q", id)
 			}
 			seen[id] = true
-		}
-	}
-	if sources.Tach != nil {
-		if err := validateReadSource(*sources.Tach); err != nil {
-			return fmt.Errorf("tach: %w", err)
 		}
 	}
 	if sources.Forge != nil {
@@ -288,20 +282,12 @@ func (reader sourceReader) collect(ctx context.Context, snapshot Snapshot, previ
 	result := DeliverySources{}
 	ids := snapshotRunIDs(snapshot)
 	config := snapshot.Instance.Sources
-	var usageResult chan UsageObservation
-	if config.Tach != nil {
-		usageResult = make(chan UsageObservation, 1)
-		go func() { usageResult <- reader.usage(ctx, *config.Tach, ids) }()
-	}
 	if config.Habitat != nil {
 		result.Habitat = reader.habitat(ctx, *config.Habitat, snapshot, ids, previous.Habitat)
 	}
 	result = retainDeliverySources(result, previous)
 	if config.Forge != nil {
 		result.Forge = reader.forge(ctx, *config.Forge, snapshot.Config, result.Habitat, previous.Forge)
-	}
-	if usageResult != nil {
-		result.Usage = <-usageResult
 	}
 	return retainDeliverySources(result, previous)
 }
@@ -448,53 +434,6 @@ func (reader sourceReader) habitat(ctx context.Context, source HabitatSource, sn
 	if result.Scope == "" {
 		result.Scope = "Explicit work item inventory and immutable Run provenance only; no module-wide inventory or admission authority"
 	}
-	return result
-}
-
-func (reader sourceReader) usage(ctx context.Context, source ReadSource, ids []string) UsageObservation {
-	result := UsageObservation{Sessions: make(map[string]ProviderUsage)}
-	if len(ids) == 0 {
-		result.Error = "No Run IDs to query; provider usage has not been observed"
-		return result
-	}
-	for offset := 0; offset < len(ids); offset += 50 {
-		batch := ids[offset:min(offset+50, len(ids))]
-		var response struct {
-			Schema   string          `json:"schema"`
-			AsOf     time.Time       `json:"as_of"`
-			Sessions []ProviderUsage `json:"sessions"`
-		}
-		body := struct {
-			Source     string   `json:"source"`
-			SessionIDs []string `json:"session_ids"`
-		}{Source: "iron-forest", SessionIDs: batch}
-		endpoint := strings.TrimRight(source.Endpoint, "/") + "/v1/provider-usage/query"
-		if err := reader.read(ctx, http.MethodPost, endpoint, source.TokenEnv, "x-query-key", body, &response); err != nil {
-			result.Error = err.Error()
-			return result
-		}
-		if response.Schema != "tach.provider-usage.v1" || response.AsOf.IsZero() || response.Sessions == nil {
-			result.Error = "Tach provider-usage schema or observation time is missing"
-			return result
-		}
-		allowed := make(map[string]bool, len(batch))
-		for _, id := range batch {
-			allowed[id] = true
-		}
-		for _, usage := range response.Sessions {
-			if !allowed[usage.SessionID] || !validProviderUsage(usage) {
-				result.Error = "Tach returned duplicate, out-of-scope or invalid session evidence"
-				return result
-			}
-			delete(allowed, usage.SessionID)
-			result.Sessions[usage.SessionID] = usage
-		}
-		// A missing requested session stays absent/unknown; never synthesize zero.
-		if result.AsOf.IsZero() || response.AsOf.Before(result.AsOf) {
-			result.AsOf = response.AsOf
-		}
-	}
-	result.ObservedAt = time.Now().UTC()
 	return result
 }
 

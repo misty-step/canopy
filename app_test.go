@@ -392,7 +392,7 @@ func TestSlowExternalSourceCannotHoldOrOverwriteStatus(t *testing.T) {
 	}))
 	defer server.Close()
 	inventory := testInventory()
-	inventory.Instances[0].Sources.Tach = &ReadSource{Endpoint: server.URL, TokenEnv: "READ_ONLY"}
+	inventory.Instances[0].Sources.Habitat = &HabitatSource{System: "https://habitat.example", ReadSource: ReadSource{Endpoint: server.URL, TokenEnv: "READ_ONLY"}}
 	collector := &testCollector{collect: func(context.Context, Instance) (Snapshot, error) {
 		return Snapshot{Status: StatusData{LiveRuns: []LiveRunData{{RunID: "initial"}}}}, nil
 	}}
@@ -415,7 +415,7 @@ func TestSlowExternalSourceCannotHoldOrOverwriteStatus(t *testing.T) {
 	close(release)
 	awaitSignal(t, done)
 	after, _ := app.state(instance.ID)
-	if after.Snapshot.Status.Repo != "advanced" || after.Snapshot.Delivery.Usage.Error == "" || !after.LastSuccess.Equal(current.LastSuccess) {
+	if after.Snapshot.Status.Repo != "advanced" || after.Snapshot.Delivery.Habitat.Error == "" || !after.LastSuccess.Equal(current.LastSuccess) {
 		t.Fatalf("source result replaced or renewed status: %+v", after)
 	}
 }

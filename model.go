@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -206,9 +208,46 @@ type RunData struct {
 	CacheRead     int64           `json:"cache_read"`
 	CacheWrite    int64           `json:"cache_write"`
 	Reasoning     int64           `json:"reasoning"`
+	ProviderCost  *ProviderCost   `json:"provider_cost,omitempty"`
 	Error         string          `json:"error,omitempty"`
 	DefinitionSHA string          `json:"definition_sha,omitempty"`
 	Recovery      *RecoveryData   `json:"recovery,omitempty"`
+}
+
+// ProviderCost is an optional direct OpenRouter charge for one Run. Only the
+// provider's own reported amount is accepted; anything else stays unknown and
+// never changes the Run's software outcome.
+type ProviderCost struct {
+	Provider string   `json:"provider"`
+	CostUSD  *float64 `json:"cost_usd"`
+	Complete bool     `json:"complete"`
+}
+
+const providerOpenRouter = "openrouter"
+
+// UnmarshalJSON contains malformed optional accounting so an unreadable
+// provider_cost cannot fail the Run record that carries it.
+func (cost *ProviderCost) UnmarshalJSON(data []byte) error {
+	type fields ProviderCost
+	var value fields
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil
+	}
+	*cost = ProviderCost(value)
+	return nil
+}
+
+// coverage is the completeness of this Run's charge: complete only when the
+// provider reported the final amount for every charged response.
+func (cost *ProviderCost) coverage() string {
+	if cost == nil || cost.Provider != providerOpenRouter || cost.CostUSD == nil ||
+		*cost.CostUSD < 0 || math.IsNaN(*cost.CostUSD) || math.IsInf(*cost.CostUSD, 0) {
+		return "unknown"
+	}
+	if cost.Complete {
+		return "complete"
+	}
+	return "partial"
 }
 
 // CompletionData is a profile observation, independent of process exit.
