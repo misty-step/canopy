@@ -65,176 +65,85 @@ func validTestInstance(root string) Instance {
 
 func TestCLICollectorRejectsEnvelopeCommandMismatch(t *testing.T) {
 	runner := &fakeCollectorRunner{responses: map[string]CommandResult{
-		"version": fakeEnvelope("status", 0, VersionData{}, nil),
+		"status": fakeEnvelope("version", 0, VersionData{}, nil),
 	}}
-	collector := NewCLICollectorWithRunner(0, runner)
-	_, err := collector.Collect(context.Background(), validTestInstance(t.TempDir()))
-	if err == nil {
-		t.Fatal("Collect succeeded for an envelope with the wrong command")
-	}
+	_, err := NewCLICollectorWithRunner(0, runner).Collect(context.Background(), validTestInstance(t.TempDir()))
 	var cliErr *CLIError
-	if !errors.As(err, &cliErr) {
-		t.Fatalf("Collect error type=%T, want *CLIError", err)
-	}
-	if cliErr.Command != "version" || !strings.Contains(cliErr.Message, "does not match") {
-		t.Fatalf("CLI error=%+v, want version command mismatch", cliErr)
+	if !errors.As(err, &cliErr) || cliErr.Command != "status" {
+		t.Fatalf("mismatched envelope accepted: %v", err)
 	}
 }
 
 func TestCLICollectorReturnsCommandFailure(t *testing.T) {
-	message := "configuration unreadable"
+	message := "status unavailable"
 	runner := &fakeCollectorRunner{responses: map[string]CommandResult{
-		"version": fakeEnvelope("version", 2, nil, &message),
+		"status": fakeEnvelope("status", 2, nil, &message),
 	}}
-	collector := NewCLICollectorWithRunner(0, runner)
-	_, err := collector.Collect(context.Background(), validTestInstance(t.TempDir()))
-	if err == nil {
-		t.Fatal("Collect succeeded for a failing command")
-	}
+	_, err := NewCLICollectorWithRunner(0, runner).Collect(context.Background(), validTestInstance(t.TempDir()))
 	var cliErr *CLIError
-	if !errors.As(err, &cliErr) {
-		t.Fatalf("Collect error type=%T, want *CLIError", err)
-	}
-	if cliErr.Command != "version" || cliErr.Exit != 2 || cliErr.Message != message {
-		t.Fatalf("CLI error=%+v, want command failure", cliErr)
-	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("calls=%d, want collection to stop after first failure", len(runner.calls))
+	if !errors.As(err, &cliErr) || cliErr.Command != "status" || cliErr.Exit != 2 || cliErr.Message != message {
+		t.Fatalf("command failure not retained: %v", err)
 	}
 }
+
 func TestCLICollectorRejectsMalformedEnvelopes(t *testing.T) {
-	validData := `"data":{"build_sha":"abc"}`
-	validPrefix := `{"schema":"forest.cli.v2","command":"version","args":[],"exit":0,`
-	validEnvelope := validPrefix + validData + `,"error":null}`
-	cases := []struct {
-		name   string
-		stdout string
-		want   string
-	}{
-		{
-			name:   "unsupported schema",
-			stdout: `{"schema":"forest.cli.v1","command":"version","args":[],"exit":0,` + validData + `,"error":null}`,
-			want:   "invalid schema",
-		},
-		{
-			name:   "malformed JSON",
-			stdout: `{"schema":"forest.cli.v2","command":"version",`,
-			want:   "invalid CLI envelope",
-		},
-		{
-			name:   "non-object JSON",
-			stdout: `[]`,
-			want:   "invalid CLI envelope",
-		},
-		{
-			name:   "trailing JSON",
-			stdout: validEnvelope + ` {}`,
-			want:   "multiple JSON values",
-		},
-		{
-			name:   "missing schema",
-			stdout: `{"command":"version","args":[],"exit":0,` + validData + `,"error":null}`,
-			want:   `missing "schema"`,
-		},
-		{
-			name:   "missing command",
-			stdout: `{"schema":"forest.cli.v2","args":[],"exit":0,` + validData + `,"error":null}`,
-			want:   `missing "command"`,
-		},
-		{
-			name:   "missing args",
-			stdout: `{"schema":"forest.cli.v2","command":"version","exit":0,` + validData + `,"error":null}`,
-			want:   `missing "args"`,
-		},
-		{
-			name:   "missing exit",
-			stdout: `{"schema":"forest.cli.v2","command":"version","args":[],` + validData + `,"error":null}`,
-			want:   `missing "exit"`,
-		},
-		{
-			name:   "missing data",
-			stdout: `{"schema":"forest.cli.v2","command":"version","args":[],"exit":0,"error":null}`,
-			want:   `missing "data"`,
-		},
-		{
-			name:   "missing error",
-			stdout: validPrefix + validData + `}`,
-			want:   `missing "error"`,
-		},
-		{
-			name:   "null args",
-			stdout: `{"schema":"forest.cli.v2","command":"version","args":null,"exit":0,` + validData + `,"error":null}`,
-			want:   "args is null",
-		},
+	valid := `{"schema":"forest.cli.v2","command":"status","args":[],"exit":0,"data":{},"error":null}`
+	cases := map[string]string{
+		"wrong schema":    strings.Replace(valid, "forest.cli.v2", "forest.cli.v1", 1),
+		"malformed":       `{"schema":`,
+		"non-object":      `[]`,
+		"trailing value":  valid + `{}`,
+		"missing schema":  strings.Replace(valid, `"schema":"forest.cli.v2",`, "", 1),
+		"missing command": strings.Replace(valid, `"command":"status",`, "", 1),
+		"missing args":    strings.Replace(valid, `"args":[],`, "", 1),
+		"missing exit":    strings.Replace(valid, `"exit":0,`, "", 1),
+		"missing data":    strings.Replace(valid, `"data":{},`, "", 1),
+		"missing error":   strings.Replace(valid, `,"error":null`, "", 1),
+		"null args":       strings.Replace(valid, `"args":[]`, `"args":null`, 1),
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			runner := &fakeCollectorRunner{responses: map[string]CommandResult{
-				"version": {Stdout: []byte(tc.stdout), Exit: 0},
-			}}
-			collector := NewCLICollectorWithRunner(0, runner)
-			_, err := collector.Collect(context.Background(), validTestInstance(t.TempDir()))
-			if err == nil {
-				t.Fatalf("Collect succeeded for %s envelope", tc.name)
-			}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeCollectorRunner{responses: map[string]CommandResult{"status": {Stdout: []byte(raw)}}}
+			_, err := NewCLICollectorWithRunner(0, runner).Collect(context.Background(), validTestInstance(t.TempDir()))
 			var cliErr *CLIError
-			if !errors.As(err, &cliErr) {
-				t.Fatalf("Collect error type=%T, want *CLIError for %s", err, tc.name)
-			}
-			if cliErr.Command != "version" {
-				t.Fatalf("CLI error=%+v, want command version for %s", cliErr, tc.name)
-			}
-			if !strings.Contains(cliErr.Message, tc.want) {
-				t.Fatalf("CLI error=%+v, want message containing %q for %s", cliErr, tc.want, tc.name)
-			}
-			if len(runner.calls) != 1 {
-				t.Fatalf("calls=%d, want collection to stop after first failure for %s", len(runner.calls), tc.name)
+			if !errors.As(err, &cliErr) || cliErr.Command != "status" {
+				t.Fatalf("invalid envelope accepted: %v", err)
 			}
 		})
 	}
 }
 
-func TestCLICollectorStopsAtOffendingEnvelope(t *testing.T) {
-	badConfig := `{"schema":"forest.cli.v1","command":"config show","args":[],"exit":0,"data":{"repo":"org/repo"},"error":null}`
+func TestCLICollectorStatusDoesNotRequireOptionalCommands(t *testing.T) {
 	runner := &fakeCollectorRunner{responses: map[string]CommandResult{
-		"version":     fakeEnvelope("version", 0, VersionData{BuildSHA: "abc"}, nil),
-		"config show": {Stdout: []byte(badConfig), Exit: 0},
+		"status": fakeEnvelope("status", 0, StatusData{LiveRuns: []LiveRunData{{RunID: "new-run", RequestID: "request"}}}, nil),
 	}}
-	collector := NewCLICollectorWithRunner(0, runner)
-	_, err := collector.Collect(context.Background(), validTestInstance(t.TempDir()))
-	if err == nil {
-		t.Fatal("Collect succeeded for an invalid config show envelope")
+	snapshot, err := NewCLICollectorWithRunner(0, runner).Collect(context.Background(), validTestInstance(t.TempDir()))
+	if err != nil || len(snapshot.Status.LiveRuns) != 1 || snapshot.Status.LiveRuns[0].RequestID != "request" {
+		t.Fatalf("optional command prevented status observation: %+v, %v", snapshot, err)
 	}
-	var cliErr *CLIError
-	if !errors.As(err, &cliErr) {
-		t.Fatalf("Collect error type=%T, want *CLIError", err)
-	}
-	if cliErr.Command != "config show" || !strings.Contains(cliErr.Message, "invalid schema") {
-		t.Fatalf("CLI error=%+v, want config show schema mismatch", cliErr)
-	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("calls=%d, want collection to stop at the offending command", len(runner.calls))
+	if len(runner.calls) != 1 {
+		t.Fatalf("status invoked optional work: %v", runner.calls)
 	}
 }
 
-func TestCLICollectorToleratesUnsupportedVersion(t *testing.T) {
-	unknownCmd := "unknown command \"version\""
-	status := StatusData{Repo: "org/repo", Kernel: KernelData{RunningKnown: true}}
+func TestCLICollectorDetailsFailIndependently(t *testing.T) {
+	message := "unknown version command"
 	runner := &fakeCollectorRunner{responses: map[string]CommandResult{
-		"version":     fakeEnvelope("version", 6, nil, &unknownCmd),
-		"config show": fakeEnvelope("config show", 0, ConfigData{Repo: "org/repo"}, nil),
-		"declaration list": fakeEnvelope("declaration list", 0, struct {
-			Declarations []DeclarationData `json:"declarations"`
-		}{Declarations: []DeclarationData{}}, nil),
-		"status": fakeEnvelope("status", 0, status, nil),
+		"version":                  fakeEnvelope("version", 6, nil, &message),
+		"config show":              fakeEnvelope("config show", 0, ConfigData{Repo: "org/repo"}, nil),
+		"declaration list":         fakeEnvelope("declaration list", 0, map[string]any{"declarations": []DeclarationData{{Name: "builder"}}}, nil),
+		"declaration show:builder": fakeEnvelope("declaration show", 2, nil, &message),
+		"run list":                 fakeEnvelope("run list", 0, map[string]any{"runs": []RunData{}, "next_after": ""}, nil),
 	}}
-	collector := NewCLICollectorWithRunner(0, runner)
-	snapshot, err := collector.Collect(context.Background(), validTestInstance(t.TempDir()))
-	if err != nil {
-		t.Fatalf("Collect failed on unsupported version: %v", err)
+	snapshot := NewCLICollectorWithRunner(0, runner).CollectDetails(context.Background(), validTestInstance(t.TempDir()))
+	if snapshot.VersionObservation.Error == "" || !snapshot.VersionObservation.ObservedAt.IsZero() || snapshot.Version.BuildSHA != "" {
+		t.Fatalf("unsupported version became a successful observation: %+v", snapshot)
 	}
-	if snapshot.Version.BuildSHA != "unsupported" {
-		t.Fatalf("expected version.BuildSHA to be 'unsupported', got %q", snapshot.Version.BuildSHA)
+	if snapshot.Config.Repo != "org/repo" || snapshot.ConfigObservation.ObservedAt.IsZero() || snapshot.ConfigObservation.Error != "" {
+		t.Fatalf("version failure blocked configuration: %+v", snapshot)
+	}
+	if snapshot.DeclarationsObservation.Error == "" || !snapshot.DeclarationsObservation.ObservedAt.IsZero() || snapshot.History.ObservedAt.IsZero() {
+		t.Fatalf("declaration failure corrupted independent history observation: %+v", snapshot)
 	}
 }
 

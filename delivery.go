@@ -85,40 +85,40 @@ func (usage UsageObservation) freshnessObservation() SourceObservation {
 
 type PullEvidence struct {
 	SourceObservation
-	URL             string          `json:"url"`
-	State           string          `json:"state"`
-	BaseRef         string          `json:"base_ref"`
-	HeadSHA         string          `json:"head_sha"`
-	Merged          bool            `json:"merged"`
-	MergedAt        *time.Time      `json:"merged_at"`
-	SHA             string          `json:"sha"`
-	MergedBy        string          `json:"merged_by"`
-	MergerType      string          `json:"merger_type"`
+	URL             string            `json:"url"`
+	State           string            `json:"state"`
+	BaseRef         string            `json:"base_ref"`
+	HeadSHA         string            `json:"head_sha"`
+	Merged          bool              `json:"merged"`
+	MergedAt        *time.Time        `json:"merged_at"`
+	SHA             string            `json:"sha"`
+	MergedBy        string            `json:"merged_by"`
+	MergerType      string            `json:"merger_type"`
 	ReviewSource    SourceObservation `json:"review_source"`
-	ReviewReceipts  []ReviewReceipt `json:"review_receipts"`
-	ApprovalSource SourceObservation `json:"approval_source"`
-	Approvals       []ForgeApproval `json:"approvals"`
-	ApprovalWarning string          `json:"approval_warning,omitempty"`
+	ReviewReceipts  []ReviewReceipt   `json:"review_receipts"`
+	ApprovalSource  SourceObservation `json:"approval_source"`
+	Approvals       []ForgeApproval   `json:"approvals"`
+	ApprovalWarning string            `json:"approval_warning,omitempty"`
 }
 
 // ReviewReceipt combines the profile payload with independently read forge
 // metadata. It is not trusted until correlated with a known Forest Verifier Run.
 type ReviewReceipt struct {
-	Schema          string    `json:"schema"`
-	RunID           string    `json:"run_id"`
-	WorkID          string    `json:"work_id"`
-	Revision        string    `json:"revision"`
-	Decision        string    `json:"decision"`
-	Summary         string    `json:"summary"`
-	ID              int64     `json:"id"`
-	URL             string    `json:"url"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	Author          string    `json:"author"`
-	AuthorID        int64     `json:"author_id"`
-	AuthorType      string    `json:"author_type"`
-	Association     string    `json:"author_association"`
-	ValidationWarning string  `json:"validation_warning,omitempty"`
+	Schema            string    `json:"schema"`
+	RunID             string    `json:"run_id"`
+	WorkID            string    `json:"work_id"`
+	Revision          string    `json:"revision"`
+	Decision          string    `json:"decision"`
+	Summary           string    `json:"summary"`
+	ID                int64     `json:"id"`
+	URL               string    `json:"url"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	Author            string    `json:"author"`
+	AuthorID          int64     `json:"author_id"`
+	AuthorType        string    `json:"author_type"`
+	Association       string    `json:"author_association"`
+	ValidationWarning string    `json:"validation_warning,omitempty"`
 }
 
 // ForgeApproval is an observed account action, not proof that a capability-
@@ -169,13 +169,15 @@ func retainDeliverySources(next, previous DeliverySources) DeliverySources {
 type attributedRun struct {
 	ID, Agent, RequestID string
 	Started              string
+	Elapsed              string
 	Duration             *float64
 	Exit                 *int
 	Error                string
 	NoWork               bool
-	ProcessExit *int
-	Outcome     string
-	Completion  *CompletionData
+	ProcessExit          *int
+	Outcome              string
+	Completion           *CompletionData
+	Recovery             *RecoveryData
 }
 
 func attributedRuns(snapshot Snapshot) map[string]attributedRun {
@@ -198,12 +200,15 @@ func attributedRuns(snapshot Snapshot) map[string]attributedRun {
 			if retained.Completion == nil {
 				retained.Completion = run.Completion
 			}
+			if retained.Recovery == nil {
+				retained.Recovery = run.Recovery
+			}
 			runs[run.RunID] = retained
 			return
 		}
 		runs[run.RunID] = attributedRun{ID: run.RunID, Agent: run.Agent, RequestID: run.RequestID,
 			Started: run.Started, Duration: &run.Duration, Exit: &run.Exit, Error: run.Error, NoWork: run.NoWork,
-			ProcessExit: run.ProcessExit, Outcome: run.Outcome, Completion: run.Completion}
+			ProcessExit: run.ProcessExit, Outcome: run.Outcome, Completion: run.Completion, Recovery: run.Recovery}
 	}
 	for _, run := range snapshot.History.Runs {
 		addCompleted(run)
@@ -223,7 +228,7 @@ func attributedRuns(snapshot Snapshot) map[string]attributedRun {
 			continue
 		}
 		runs[run.RunID] = attributedRun{ID: run.RunID, Agent: run.Agent, RequestID: run.RequestID, Started: run.StartedAt,
-			ProcessExit: run.ProcessExit, Outcome: run.Outcome, Completion: run.Completion}
+			Elapsed: run.Elapsed, ProcessExit: run.ProcessExit, Outcome: run.Outcome, Completion: run.Completion, Recovery: run.Recovery}
 	}
 	for id, run := range runs {
 		if run.NoWork || run.Outcome == "no_work" {
@@ -300,8 +305,10 @@ type EvidenceSourceView struct {
 }
 
 type TicketRunView struct {
-	ID, Agent, RequestID, Outcome, Duration, Started string
+	ID, Agent, RequestID, Outcome, Duration, Started              string
 	ProcessOutcome, Completion, CompletionEvidence, USD, Coverage string
+	Cancelled                                                     bool
+	Recovery                                                      *RecoveryData
 }
 
 type TicketView struct {
@@ -312,14 +319,16 @@ type TicketView struct {
 	InputTokens, OutputTokens, CacheRead, CacheWrite, Reasoning, USD                  string
 	FirstDeliveryUSD                                                                  string
 	Runs                                                                              []TicketRunView
+	CurrentRuns                                                                       []TicketRunView
+	CurrentKnown                                                                      bool
 	CreatedRuns                                                                       []string
 	RunCount, FailedRuns, LiveRuns, MissingUsage, Pending, Generations, UsageSessions int
 	Notes                                                                             []string
 	Delivered                                                                         bool
-	Stage, StageClass, NextAction, ActionOwner                                          string
-	ReviewDecision, ReviewSHA, ReviewRunID, ReviewURL, ReviewSummary, ReviewWarning     string
-	ReviewAuthor, ReviewAuthorType, ReviewAuthorAssociation                            string
-	CurrentPRURL, HeadSHA, USDCompact, MergerType                                       string
+	Stage, StageClass, NextAction, ActionOwner                                        string
+	ReviewDecision, ReviewSHA, ReviewRunID, ReviewURL, ReviewSummary, ReviewWarning   string
+	ReviewAuthor, ReviewAuthorType, ReviewAuthorAssociation                           string
+	CurrentPRURL, HeadSHA, USDCompact, MergerType                                     string
 	AccountApprovals                                                                  []ForgeApproval
 	ApprovalFreshness                                                                 string
 	NeedsAttention                                                                    bool
@@ -329,7 +338,7 @@ type TicketDeliveryView struct {
 	Tickets                                          []TicketView
 	Sources                                          []EvidenceSourceView
 	UnattributedRuns, ConflictingRuns, Delivered     int
-	NeedsAttention, InProgress                        int
+	NeedsAttention, InProgress                       int
 	HistoryNotice                                    string
 	UnassignedUSD, UnassignedInput, UnassignedOutput string
 	UnassignedUsageSessions, UnassignedPending       int
@@ -338,10 +347,10 @@ type TicketDeliveryView struct {
 type ticketIdentity struct{ System, ID string }
 
 type ticketAggregate struct {
-	Work    WorkRef
-	Runs    map[string]attributedRun
-	Created map[string]bool
-	Notes   []string
+	Work        WorkRef
+	Runs        map[string]attributedRun
+	Created     map[string]bool
+	Notes       []string
 	Conflicting bool
 }
 
@@ -349,7 +358,7 @@ func ticketDeliveryView(snapshot Snapshot, parentStale bool, now time.Time, maxA
 	view := TicketDeliveryView{}
 	sources := snapshot.Instance.Sources
 	observation := snapshot.Delivery
-	view.Sources = append(view.Sources, evidenceSourceView("Run history", true, snapshot.History.SourceObservation, parentStale, now, maxAge, "All Run pages, including nonzero exits"))
+	view.Sources = append(view.Sources, evidenceSourceView("Run history", true, snapshot.History.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "All Run pages, including nonzero exits"))
 	view.Sources = append(view.Sources, evidenceSourceView("Habitat", sources.Habitat != nil, observation.Habitat.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, observation.Habitat.Scope))
 	usageMessage := "Provider receipts only; missing is not zero"
 	if !observation.Usage.AsOf.IsZero() {
@@ -505,6 +514,7 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 		URL: safeExternalURL(aggregate.Work.URL), Tracker: "Unknown", TrackerFreshness: "unknown", Delivery: "Unknown — no independently observed PR", DeliveryClass: "unknown",
 		FirstDeliveryUSD: "Unknown",
 		Started:          "Unknown", Latency: "Unknown", ObservedLatency: "Unknown", Duration: "Unknown", Coverage: "unknown", MergeTime: "Unknown", Notes: aggregate.Notes}
+	view.CurrentKnown = !parentStale && snapshot.Status.LiveRunError == ""
 	if view.Key == "" {
 		view.Key = view.ID
 	}
@@ -547,6 +557,7 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 		row := TicketRunView{ID: id, Agent: run.Agent, RequestID: run.RequestID, Outcome: "live", Duration: "in progress", Started: run.Started,
 			ProcessOutcome: processOutcome(run.Outcome, run.ProcessExit), USD: "Unknown", Coverage: "unknown"}
 		row.Completion, row.CompletionEvidence = completionView(run.Completion)
+		row.Cancelled, row.Recovery = run.Outcome == "cancelled", run.Recovery
 		if started, err := time.Parse(time.RFC3339Nano, run.Started); err == nil {
 			if firstStart == nil || started.Before(*firstStart) {
 				firstStart = &started
@@ -569,6 +580,10 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 			}
 		} else {
 			view.LiveRuns++
+			row.Duration = run.Elapsed
+			if row.Duration == "" {
+				row.Duration = "unknown"
+			}
 			if run.Outcome != "" {
 				// The model attempt finished while Kernel finalization continues;
 				// that is neither a completed execution nor observed delivery.
@@ -584,6 +599,9 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 			if usage.CostUSD != nil {
 				row.USD = fmt.Sprintf("$%.8f", *usage.CostUSD)
 			}
+		}
+		if run.Exit == nil {
+			view.CurrentRuns = append(view.CurrentRuns, row)
 		}
 		view.Runs = append(view.Runs, row)
 		if !known || usage.Coverage == "unknown" {
@@ -648,7 +666,7 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 	if view.RunCount == 0 {
 		view.Notes = append(view.Notes, "No unambiguous served Run is attributed to this ticket")
 	}
-	historyFresh := evidenceSourceView("", true, snapshot.History.SourceObservation, parentStale, now, maxAge, "").State == "fresh"
+	historyFresh := evidenceSourceView("", true, snapshot.History.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State == "fresh"
 	var firstMerged *PullEvidence
 	firstDeliveryKnown := startTimesComplete && !aggregate.Conflicting && historyFresh && view.TrackerFreshness == "fresh" && item.HistoryWarning == ""
 	urls := make(map[string]bool, len(item.PRURLs)+1)
@@ -925,7 +943,7 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		}
 	}
 	view.ReviewWarning = review.Warning
-	if parentStale || !historyFresh || view.TrackerFreshness != "fresh" || snapshot.Status.LiveRunError != "" {
+	if parentStale || snapshot.Status.LiveRunError != "" {
 		return
 	}
 	if aggregate.Conflicting {
@@ -941,15 +959,47 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		setStage("In progress", "warn", "Running agent", "Observe the active Run; do not start a duplicate", false)
 		return
 	}
+	// Only label an observed execution, never cancel the work item by inference.
+	// The status tail supplies the current clock; optional history is not needed.
+	var latest time.Time
+	lastOutcome := ""
+	for _, run := range snapshot.Status.Recent {
+		if _, attributed := aggregate.Runs[run.RunID]; !attributed {
+			continue
+		}
+		started, err := time.Parse(time.RFC3339Nano, run.Started)
+		if err != nil {
+			lastOutcome = ""
+			break
+		}
+		if started.After(latest) {
+			latest, lastOutcome = started, run.Outcome
+		} else if started.Equal(latest) && lastOutcome != run.Outcome {
+			lastOutcome = ""
+		}
+	}
+	if lastOutcome == "cancelled" {
+		setStage("Last execution cancelled", "warn", "Operator", "Inspect the cancelled Run and any retained worktree before authorizing new work; nothing resumes automatically", true)
+		return
+	}
+	if !historyFresh || view.TrackerFreshness != "fresh" {
+		return
+	}
+	for _, observation := range []SourceObservation{snapshot.ConfigObservation, snapshot.DeclarationsObservation} {
+		if evidenceSourceView("", true, observation, false, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State != "fresh" {
+			view.NextAction = "Restore configuration and declaration observations before deciding the next action"
+			return
+		}
+	}
 	if item.PRURL == "" {
 		if item.Status == "done" {
 			view.NextAction = "Restore the exact current PR link; tracker Done alone is not completion evidence"
 		} else if view.RunCount == 0 {
 			// No observed Run and no candidate. Do not read another tracker's
 			// status vocabulary to claim progress that was never observed.
-			setStage("Not started", "unknown", "Operator", "Confirm admission authority before authorizing a Run; inventory is read-only scope", false)
+			setStage("No execution observed", "unknown", "Operator", "Confirm admission authority before authorizing a Run; inventory is read-only scope", false)
 		} else {
-			setStage("In progress", "warn", "Builder", "Publish and link the current candidate PR", false)
+			setStage("Candidate not observed", "unknown", "Operator", "Inspect the latest execution and candidate evidence before authorizing another Run", true)
 			if latestAttemptNeedsInspection(aggregate.Runs, snapshot.Declarations, "builder") {
 				view.ActionOwner, view.NextAction, view.NeedsAttention = "Operator", "Inspect the latest Builder completion and admission evidence before authorizing another Run", true
 			}
@@ -973,7 +1023,7 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 			for _, run := range aggregate.Runs {
 				started, err := time.Parse(time.RFC3339Nano, run.Started)
 				if err == nil && started.After(*pull.MergedAt) {
-					setStage("In progress", "warn", "Builder", "Link the reopened attempt's current PR; the historical merge is retained separately", true)
+					setStage("Current candidate not observed", "unknown", "Operator", "Link the reopened attempt's current PR; the historical merge is retained separately", true)
 					return
 				}
 			}
@@ -981,7 +1031,7 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		if item.Status == "done" && reviewFresh && review.State == "current" && view.ReviewDecision == "approve" {
 			setStage("Complete", "ok", "None", "Observe only; merge, exact-revision review and tracker Done are independently recorded", false)
 		} else {
-			setStage("Merged; reconciliation required", "warn", "Human operator", "Inspect exact-revision approval and run explicit reconciliation; do not merge again or auto-resume", true)
+			setStage("Merged; reconciliation required", "warn", "Operator", "Inspect the recorded merge, exact-revision approval and tracker state; observation does not authorize further action", true)
 		}
 		return
 	}
@@ -990,7 +1040,7 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		return
 	}
 	if pull.State != "open" {
-		setStage("In progress", "warn", "Builder", "Replace or reopen the closed, unmerged candidate PR", true)
+		setStage("Candidate closed", "warn", "Operator", "Inspect the closed, unmerged candidate before authorizing another Run", true)
 		return
 	}
 	if !revisionSHA.MatchString(pull.HeadSHA) {
@@ -1006,7 +1056,7 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		if view.ReviewDecision == "changes" {
 			setStage("Changes requested", "warn", "Fixer", "Address the recorded findings and request verification of the new exact revision", true)
 		} else {
-			setStage("Ready for human review", "ok", "Human operator", "Review the exact approved SHA, merge explicitly, then reconcile the tracker", true)
+			setStage("Verified, awaiting merge", "ok", "", "Exact-revision approval is recorded; merge has not been observed", false)
 		}
 	default:
 		setStage("Awaiting verification", "warn", "Verifier", "Verify the current head and publish a Run-linked forest.review.v1 receipt", false)

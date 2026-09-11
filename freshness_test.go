@@ -257,6 +257,10 @@ func (c *slowSuccessCollector) Logs(context.Context, Instance, string, bool) (Lo
 	return LogResult{}, nil
 }
 
+func (c *slowSuccessCollector) CollectDetails(context.Context, Instance) Snapshot {
+	return Snapshot{}
+}
+
 func (c *slowSuccessCollector) maximum() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -274,8 +278,6 @@ func TestSlowSuccessRefreshRecoversWithoutOverlap(t *testing.T) {
 		release: make(chan struct{}),
 		snapshot: Snapshot{
 			Instance: inventory.Instances[0],
-			Version:  VersionData{BuildSHA: "slow-ok"},
-			Config:   ConfigData{Repo: "misty-step/canopy", Primary: "master"},
 			Status:   StatusData{Repo: "misty-step/canopy"},
 		},
 	}
@@ -353,8 +355,8 @@ func TestSlowSuccessRefreshRecoversWithoutOverlap(t *testing.T) {
 		t.Fatal("after slow success last observed is empty, want visible timestamp")
 	}
 	state, _ := app.state("one")
-	if state.Snapshot == nil || state.Snapshot.Version.BuildSHA != "slow-ok" {
-		t.Fatalf("snapshot=%+v, want slow-ok success retained", state.Snapshot)
+	if state.Snapshot == nil || state.Snapshot.Status.Repo != "misty-step/canopy" {
+		t.Fatalf("snapshot=%+v, want successful status retained", state.Snapshot)
 	}
 	if !state.LastAttempt.After(state.LastSuccess.Add(-time.Hour)) {
 		t.Fatalf("attempt=%v success=%v, want attempt recorded", state.LastAttempt, state.LastSuccess)

@@ -1,7 +1,7 @@
 ---
-model: openrouter/deepseek/deepseek-v4-flash-0731
 tools: read,grep,glob,bash,edit,write
 thinking: high
+extensions: [.iron-forest/extensions/models.ts]
 ---
 
 ## Work authority

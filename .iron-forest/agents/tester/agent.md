@@ -1,7 +1,7 @@
 ---
-model: openrouter/google/gemini-3.8-flash
 tools: read,grep,glob,bash
 thinking: high
+extensions: [.iron-forest/extensions/models.ts]
 ---
 # Tester
 

@@ -146,7 +146,7 @@ svg { display: block; flex-shrink: 0; }
 .work-search kbd { position: absolute; right: .8rem; font: .75rem var(--text-font-family); color: var(--muted); pointer-events: none; }
 .work-search:focus-within kbd { display: none; }
 .workbench-body { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
-.work-index { min-width: 0; }
+.work-index { min-width: 0; scroll-margin-top: 6rem; }
 .work-columns, .work-link { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.15fr) minmax(7rem, .65fr) minmax(7rem, .55fr); gap: 1.6rem; }
 .work-columns { padding: .4rem 1.4rem .65rem; color: var(--muted); font-size: .72rem; }
 .work-columns > :last-child { text-align: right; }
@@ -187,10 +187,9 @@ svg { display: block; flex-shrink: 0; }
 .empty-mark { display: block; margin-bottom: .5rem; font: 600 3rem/1 var(--display-font-family); color: var(--primary); }
 .waiting-state { padding-block: 4rem; }
 
-/* Opening work turns the index into a companion to the evidence reader. */
-.has-selection > .work-controls { position: sticky; top: 5rem; z-index: 15; padding: .65rem 0; margin-bottom: .65rem; background: var(--canvas); }
-.has-selection .workbench-body { grid-template-columns: minmax(15rem, .8fr) minmax(0, 2.2fr); gap: 2rem; }
-.has-selection .work-index { position: sticky; top: 9.75rem; }
+/* Keep the selected change full-width; the bounded work index is a disclosure. */
+.has-selection .workbench-body { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.has-selection .work-index { position: static; }
 .has-selection .work-columns { display: none; }
 .has-selection .work-list { max-height: calc(100dvh - 12rem); overflow-y: auto; overscroll-behavior: contain; }
 .has-selection .work-link { grid-template-columns: minmax(0, 1fr); gap: .75rem; padding: 1.2rem; }
@@ -315,7 +314,6 @@ summary::-webkit-details-marker { display: none; }
   .work-controls { align-items: stretch; }
   .work-filters button { padding-inline: .6rem; }
   .work-columns, .work-link { gap: 1rem; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) 6rem 6rem; }
-  .has-selection .workbench-body { grid-template-columns: minmax(12rem, .75fr) minmax(0, 2fr); gap: 1.25rem; }
   .work-detail { padding: 1.4rem; }
   .source-statuses { gap: .5rem .9rem; }
 }
@@ -328,8 +326,6 @@ summary::-webkit-details-marker { display: none; }
   .work-search { max-width: none; }
   .work-filters { gap: .3rem; }
   .work-filters button { padding-inline: .8rem; }
-  .has-selection .workbench-body { grid-template-columns: minmax(0, 1fr); }
-  .has-selection .work-index, .has-selection > .work-controls, .has-selection > .work-heading { display: none; }
   .work-detail { padding: 1.5rem; scroll-margin-top: 6rem; }
   .work-detail-header h2 { font-size: 2.3rem; }
   .source-statuses { margin-left: 1.2rem; width: 100%; }
