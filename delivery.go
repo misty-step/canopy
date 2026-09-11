@@ -53,36 +53,6 @@ type HabitatObservation struct {
 	Items map[string]HabitatItem `json:"items"`
 }
 
-// These are nullable provider facts, not model-catalog estimates. The token
-// subcategories overlap input/output and must never be added to their totals.
-type ProviderUsage struct {
-	SessionID        string   `json:"session_id"`
-	InputTokens      *int64   `json:"input_tokens"`
-	OutputTokens     *int64   `json:"output_tokens"`
-	CacheReadTokens  *int64   `json:"cache_read_tokens"`
-	CacheWriteTokens *int64   `json:"cache_write_tokens"`
-	ReasoningTokens  *int64   `json:"reasoning_tokens"`
-	CostUSD          *float64 `json:"cost_usd"`
-	GenerationCount  *int     `json:"generation_count"`
-	PendingCount     *int     `json:"pending_count"`
-	Coverage         string   `json:"coverage"`
-	Models           []string `json:"models"`
-}
-
-type UsageObservation struct {
-	SourceObservation
-	AsOf     time.Time                `json:"as_of"`
-	Sessions map[string]ProviderUsage `json:"sessions"`
-}
-
-func (usage UsageObservation) freshnessObservation() SourceObservation {
-	observation := usage.SourceObservation
-	if !observation.ObservedAt.IsZero() && !usage.AsOf.IsZero() && usage.AsOf.Before(observation.ObservedAt) {
-		observation.ObservedAt = usage.AsOf
-	}
-	return observation
-}
-
 type PullEvidence struct {
 	SourceObservation
 	URL             string            `json:"url"`
@@ -139,7 +109,6 @@ type ForgeObservation struct {
 type DeliverySources struct {
 	AttemptedAt time.Time          `json:"attempted_at"`
 	Habitat     HabitatObservation `json:"habitat"`
-	Usage       UsageObservation   `json:"usage"`
 	Forge       ForgeObservation   `json:"forge"`
 }
 
@@ -158,11 +127,6 @@ func retainDeliverySources(next, previous DeliverySources) DeliverySources {
 		next.Habitat = previous.Habitat
 		next.Habitat.Error = err
 	}
-	if next.Usage.Error != "" {
-		err := next.Usage.Error
-		next.Usage = previous.Usage
-		next.Usage.Error = err
-	}
 	return next
 }
 
@@ -178,11 +142,12 @@ type attributedRun struct {
 	Outcome              string
 	Completion           *CompletionData
 	Recovery             *RecoveryData
+	Native               *RunData
 }
 
 func attributedRuns(snapshot Snapshot) map[string]attributedRun {
 	runs := make(map[string]attributedRun, len(snapshot.History.Runs)+len(snapshot.Status.Recent)+len(snapshot.Status.LiveRuns))
-	addCompleted := func(run RunData) {
+	addCompleted := func(run RunData, history bool) {
 		if run.RunID == "" {
 			return
 		}
@@ -209,12 +174,17 @@ func attributedRuns(snapshot Snapshot) map[string]attributedRun {
 		runs[run.RunID] = attributedRun{ID: run.RunID, Agent: run.Agent, RequestID: run.RequestID,
 			Started: run.Started, Duration: &run.Duration, Exit: &run.Exit, Error: run.Error, NoWork: run.NoWork,
 			ProcessExit: run.ProcessExit, Outcome: run.Outcome, Completion: run.Completion, Recovery: run.Recovery}
+		if history {
+			retained := runs[run.RunID]
+			retained.Native = &run
+			runs[run.RunID] = retained
+		}
 	}
 	for _, run := range snapshot.History.Runs {
-		addCompleted(run)
+		addCompleted(run, true)
 	}
 	for _, run := range snapshot.Status.Recent {
-		addCompleted(run)
+		addCompleted(run, false)
 	}
 	for _, run := range snapshot.Status.LiveRuns {
 		if run.RunID == "" {
@@ -284,22 +254,6 @@ func snapshotRunIDs(snapshot Snapshot) []string {
 	return ids
 }
 
-func validProviderUsage(usage ProviderUsage) bool {
-	if usage.Coverage != "unknown" && usage.Coverage != "partial" && usage.Coverage != "complete" {
-		return false
-	}
-	if usage.GenerationCount == nil || usage.PendingCount == nil || *usage.GenerationCount < 0 || *usage.PendingCount < 0 ||
-		(usage.Coverage == "complete" && *usage.PendingCount > 0) {
-		return false
-	}
-	for _, value := range []*int64{usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens, usage.ReasoningTokens} {
-		if value != nil && *value < 0 {
-			return false
-		}
-	}
-	return usage.CostUSD == nil || (*usage.CostUSD >= 0 && !math.IsNaN(*usage.CostUSD) && !math.IsInf(*usage.CostUSD, 0))
-}
-
 type EvidenceSourceView struct {
 	Name, State, Observed, Message string
 }
@@ -312,26 +266,26 @@ type TicketRunView struct {
 }
 
 type TicketView struct {
-	ID, System, Key, URL, Title                                                       string
-	Tracker, TrackerFreshness, TrackerObserved                                        string
-	Delivery, DeliveryClass, PRURL, MergeTime, MergeSHA, Merger, MergeFreshness       string
-	Started, Latency, ObservedLatency, Duration, Coverage, UsageFreshness             string
-	InputTokens, OutputTokens, CacheRead, CacheWrite, Reasoning, USD                  string
-	FirstDeliveryUSD                                                                  string
-	Runs                                                                              []TicketRunView
-	CurrentRuns                                                                       []TicketRunView
-	CurrentKnown                                                                      bool
-	CreatedRuns                                                                       []string
-	RunCount, FailedRuns, LiveRuns, MissingUsage, Pending, Generations, UsageSessions int
-	Notes                                                                             []string
-	Delivered                                                                         bool
-	Stage, StageClass, NextAction, ActionOwner                                        string
-	ReviewDecision, ReviewSHA, ReviewRunID, ReviewURL, ReviewSummary, ReviewWarning   string
-	ReviewAuthor, ReviewAuthorType, ReviewAuthorAssociation                           string
-	CurrentPRURL, HeadSHA, USDCompact, MergerType                                     string
-	AccountApprovals                                                                  []ForgeApproval
-	ApprovalFreshness                                                                 string
-	NeedsAttention                                                                    bool
+	ID, System, Key, URL, Title                                                     string
+	Tracker, TrackerFreshness, TrackerObserved                                      string
+	Delivery, DeliveryClass, PRURL, MergeTime, MergeSHA, Merger, MergeFreshness     string
+	Started, Latency, ObservedLatency, Duration, Coverage                           string
+	InputTokens, OutputTokens, CacheRead, CacheWrite, Reasoning, USD                string
+	FirstDeliveryUSD                                                                string
+	Runs                                                                            []TicketRunView
+	CurrentRuns                                                                     []TicketRunView
+	CurrentKnown                                                                    bool
+	CreatedRuns                                                                     []string
+	RunCount, FailedRuns, LiveRuns, CostReported, CostUnknown                       int
+	Notes                                                                           []string
+	Delivered                                                                       bool
+	Stage, StageClass, NextAction, ActionOwner                                      string
+	ReviewDecision, ReviewSHA, ReviewRunID, ReviewURL, ReviewSummary, ReviewWarning string
+	ReviewAuthor, ReviewAuthorType, ReviewAuthorAssociation                         string
+	CurrentPRURL, HeadSHA, USDCompact, MergerType                                   string
+	AccountApprovals                                                                []ForgeApproval
+	ApprovalFreshness                                                               string
+	NeedsAttention                                                                  bool
 }
 
 type TicketDeliveryView struct {
@@ -341,7 +295,6 @@ type TicketDeliveryView struct {
 	NeedsAttention, InProgress                       int
 	HistoryNotice                                    string
 	UnassignedUSD, UnassignedInput, UnassignedOutput string
-	UnassignedUsageSessions, UnassignedPending       int
 }
 
 type ticketIdentity struct{ System, ID string }
@@ -358,13 +311,8 @@ func ticketDeliveryView(snapshot Snapshot, parentStale bool, now time.Time, maxA
 	view := TicketDeliveryView{}
 	sources := snapshot.Instance.Sources
 	observation := snapshot.Delivery
-	view.Sources = append(view.Sources, evidenceSourceView("Run history", true, snapshot.History.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "All Run pages, including nonzero exits"))
+	view.Sources = append(view.Sources, evidenceSourceView("Run history", true, snapshot.History.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "All Run pages, including nonzero exits and any provider charge the Run reports"))
 	view.Sources = append(view.Sources, evidenceSourceView("Habitat", sources.Habitat != nil, observation.Habitat.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, observation.Habitat.Scope))
-	usageMessage := "Provider receipts only; missing is not zero"
-	if !observation.Usage.AsOf.IsZero() {
-		usageMessage += "; provider query as of " + formatTime(observation.Usage.AsOf)
-	}
-	view.Sources = append(view.Sources, evidenceSourceView("Tach", sources.Tach != nil, observation.Usage.freshnessObservation(), parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, usageMessage))
 	view.Sources = append(view.Sources, evidenceSourceView("Forge", sources.Forge != nil, observation.Forge.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "Explicit PR links; merge to declared primary is not deployment"))
 	if view.Sources[0].State != "fresh" {
 		view.HistoryNotice = "Run history is incomplete or stale. Counts, first start, duration and cost cover observed Runs only."
@@ -431,18 +379,14 @@ func ticketDeliveryView(snapshot Snapshot, parentStale bool, now time.Time, maxA
 			}
 		}
 		if len(candidates[id]) != 1 {
-			if usage, known := observation.Usage.Sessions[id]; known {
-				view.UnassignedUsageSessions++
-				unassignedInput = addKnownTokens(unassignedInput, usage.InputTokens)
-				unassignedOutput = addKnownTokens(unassignedOutput, usage.OutputTokens)
-				if usage.CostUSD != nil {
+			if native := run.Native; native != nil {
+				unassignedInput = addKnownTokens(unassignedInput, &native.TokensIn)
+				unassignedOutput = addKnownTokens(unassignedOutput, &native.TokensOut)
+				if native.ProviderCost.coverage() != "unknown" {
 					if unassignedCost == nil {
 						unassignedCost = new(0.0)
 					}
-					*unassignedCost += *usage.CostUSD
-				}
-				if usage.PendingCount != nil {
-					view.UnassignedPending += *usage.PendingCount
+					*unassignedCost += *native.ProviderCost.CostUSD
 				}
 			}
 		}
@@ -593,43 +537,38 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 		if run.Error != "" {
 			row.Outcome += ": " + run.Error
 		}
-		usage, known := snapshot.Delivery.Usage.Sessions[id]
-		if known {
-			row.Coverage = usage.Coverage
-			if usage.CostUSD != nil {
-				row.USD = fmt.Sprintf("$%.8f", *usage.CostUSD)
+		if native := run.Native; native != nil {
+			row.Coverage = native.ProviderCost.coverage()
+			if row.Coverage != "unknown" {
+				row.USD = fmt.Sprintf("$%.8f", *native.ProviderCost.CostUSD)
 			}
 		}
 		if run.Exit == nil {
 			view.CurrentRuns = append(view.CurrentRuns, row)
 		}
 		view.Runs = append(view.Runs, row)
-		if !known || usage.Coverage == "unknown" {
-			view.MissingUsage++
+		if row.Coverage == "unknown" {
+			view.CostUnknown++
+		} else {
+			view.CostReported++
 		}
-		if !known {
+		native := run.Native
+		if native == nil {
 			continue
 		}
-		view.UsageSessions++
-		if usage.Coverage == "complete" {
+		if row.Coverage == "complete" {
 			completeUsage++
 		}
-		input = addKnownTokens(input, usage.InputTokens)
-		output = addKnownTokens(output, usage.OutputTokens)
-		cacheRead = addKnownTokens(cacheRead, usage.CacheReadTokens)
-		cacheWrite = addKnownTokens(cacheWrite, usage.CacheWriteTokens)
-		reasoning = addKnownTokens(reasoning, usage.ReasoningTokens)
-		if usage.CostUSD != nil {
+		input = addKnownTokens(input, &native.TokensIn)
+		output = addKnownTokens(output, &native.TokensOut)
+		cacheRead = addKnownTokens(cacheRead, &native.CacheRead)
+		cacheWrite = addKnownTokens(cacheWrite, &native.CacheWrite)
+		reasoning = addKnownTokens(reasoning, &native.Reasoning)
+		if row.Coverage != "unknown" {
 			if cost == nil {
 				cost = new(0.0)
 			}
-			*cost += *usage.CostUSD
-		}
-		if usage.PendingCount != nil {
-			view.Pending += *usage.PendingCount
-		}
-		if usage.GenerationCount != nil {
-			view.Generations += *usage.GenerationCount
+			*cost += *native.ProviderCost.CostUSD
 		}
 	}
 	view.RunCount = len(ids)
@@ -642,9 +581,10 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 	if firstStart != nil {
 		view.Started = formatTime(*firstStart)
 	}
-	if completeUsage == view.RunCount && view.RunCount > 0 && !aggregate.Conflicting {
+	historyFresh := evidenceSourceView("", true, snapshot.History.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State == "fresh"
+	if completeUsage == view.RunCount && view.RunCount > 0 && !aggregate.Conflicting && historyFresh {
 		view.Coverage = "complete"
-	} else if view.Generations > 0 || view.Pending > 0 || input != nil || output != nil || cost != nil {
+	} else if cost != nil {
 		view.Coverage = "partial"
 	}
 	view.InputTokens, view.OutputTokens = formatKnownTokens(input), formatKnownTokens(output)
@@ -655,7 +595,6 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 		view.USD = fmt.Sprintf("$%.8f", *cost)
 		view.USDCompact = compactUSD(*cost)
 	}
-	view.UsageFreshness = evidenceSourceView("", snapshot.Instance.Sources.Tach != nil, snapshot.Delivery.Usage.freshnessObservation(), parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State
 	for id := range aggregate.Created {
 		view.CreatedRuns = append(view.CreatedRuns, id)
 	}
@@ -666,7 +605,6 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 	if view.RunCount == 0 {
 		view.Notes = append(view.Notes, "No unambiguous served Run is attributed to this ticket")
 	}
-	historyFresh := evidenceSourceView("", true, snapshot.History.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State == "fresh"
 	var firstMerged *PullEvidence
 	firstDeliveryKnown := startTimesComplete && !aggregate.Conflicting && historyFresh && view.TrackerFreshness == "fresh" && item.HistoryWarning == ""
 	urls := make(map[string]bool, len(item.PRURLs)+1)
@@ -714,9 +652,7 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 				view.ObservedLatency = formatDuration(selected.MergedAt.Sub(*firstStart).Seconds())
 				if firstDeliveryKnown {
 					view.Latency = view.ObservedLatency
-					if view.UsageFreshness == "fresh" {
-						view.FirstDeliveryUSD = firstDeliveryCost(aggregate.Runs, snapshot.Delivery.Usage.Sessions, *selected.MergedAt)
-					}
+					view.FirstDeliveryUSD = firstDeliveryCost(aggregate.Runs, *selected.MergedAt)
 				} else {
 					view.Notes = append(view.Notes, "Earliest observed merge is shown; incomplete evidence leaves first-delivery latency and cost unknown")
 				}
@@ -1105,10 +1041,10 @@ func latestAttemptNeedsInspection(runs map[string]attributedRun, declarations []
 	return false
 }
 
-func firstDeliveryCost(runs map[string]attributedRun, sessions map[string]ProviderUsage, merged time.Time) string {
+func firstDeliveryCost(runs map[string]attributedRun, merged time.Time) string {
 	var total float64
 	known := false
-	for id, run := range runs {
+	for _, run := range runs {
 		started, err := time.Parse(time.RFC3339Nano, run.Started)
 		if err != nil {
 			return "Unknown"
@@ -1120,11 +1056,10 @@ func firstDeliveryCost(runs map[string]attributedRun, sessions map[string]Provid
 			// Per-Run receipts cannot allocate a Run spanning the merge.
 			return "Unknown"
 		}
-		usage, exists := sessions[id]
-		if !exists || usage.Coverage != "complete" || usage.CostUSD == nil {
+		if run.Native == nil || run.Native.ProviderCost.coverage() != "complete" {
 			return "Unknown"
 		}
-		total += *usage.CostUSD
+		total += *run.Native.ProviderCost.CostUSD
 		known = true
 	}
 	if !known {

@@ -147,6 +147,41 @@ func TestCLICollectorDetailsFailIndependently(t *testing.T) {
 	}
 }
 
+func TestCLICollectorHistoryCarriesNativeProviderCostTolerantly(t *testing.T) {
+	payload := json.RawMessage(`{"runs":[
+		{"run_id":"closed","agent":"builder","started":"2026-09-08T09:00:00Z","duration":60,"exit":0,"tokens_in":10,"tokens_out":20,"provider_cost":{"provider":"openrouter","cost_usd":0.125,"complete":true}},
+		{"run_id":"zero","agent":"builder","started":"2026-09-08T09:01:00Z","duration":60,"exit":0,"provider_cost":{"provider":"openrouter","cost_usd":0,"complete":true}},
+		{"run_id":"open","agent":"builder","started":"2026-09-08T09:02:00Z","duration":60,"exit":1,"provider_cost":{"provider":"openrouter","cost_usd":0.25,"complete":false}},
+		{"run_id":"absent","agent":"builder","started":"2026-09-08T09:03:00Z","duration":60,"exit":0},
+		{"run_id":"malformed","agent":"builder","started":"2026-09-08T09:04:00Z","duration":60,"exit":0,"outcome":"completed","provider_cost":{"provider":"openrouter","cost_usd":"not-a-number"}},
+		{"run_id":"foreign","agent":"builder","started":"2026-09-08T09:05:00Z","duration":60,"exit":0,"provider_cost":{"provider":"some-other-gateway","cost_usd":9.5,"complete":true}},
+		{"run_id":"null","agent":"builder","started":"2026-09-08T09:06:00Z","duration":60,"exit":0,"provider_cost":null}
+	],"next_after":""}`)
+	runner := &fakeCollectorRunner{responses: map[string]CommandResult{
+		"version":          fakeEnvelope("version", 0, VersionData{}, nil),
+		"config show":      fakeEnvelope("config show", 0, ConfigData{Repo: "org/repo"}, nil),
+		"declaration list": fakeEnvelope("declaration list", 0, map[string]any{"declarations": []DeclarationData{}}, nil),
+		"run list":         fakeEnvelope("run list", 0, payload, nil),
+	}}
+	snapshot := NewCLICollectorWithRunner(0, runner).CollectDetails(context.Background(), validTestInstance(t.TempDir()))
+	if snapshot.History.Error != "" || len(snapshot.History.Runs) != 7 {
+		t.Fatalf("optional accounting decided whether Run history was readable: %+v", snapshot.History)
+	}
+	want := map[string]string{"closed": "complete", "zero": "complete", "open": "partial", "absent": "unknown",
+		"malformed": "unknown", "foreign": "unknown", "null": "unknown"}
+	for _, run := range snapshot.History.Runs {
+		if coverage := run.ProviderCost.coverage(); coverage != want[run.RunID] {
+			t.Fatalf("Run %s reported %q provider cost coverage", run.RunID, coverage)
+		}
+		if run.Duration != 60 || run.Agent != "builder" {
+			t.Fatalf("optional accounting changed Run %s software facts: %+v", run.RunID, run)
+		}
+	}
+	if run := snapshot.History.Runs[4]; run.Outcome != "completed" || run.Exit != 0 {
+		t.Fatalf("a malformed charge suppressed the Run outcome: %+v", run)
+	}
+}
+
 func TestCLICollectorRejectsInvalidSSHBeforeExecution(t *testing.T) {
 	runner := &fakeCollectorRunner{responses: map[string]CommandResult{}}
 	collector := NewCLICollectorWithRunner(0, runner)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -9,20 +8,31 @@ import (
 	"time"
 )
 
+// completeCost and partialCost build the native provider charge a Run record
+// carries: complete means the provider closed its accounting for that Run.
+func completeCost(usd float64) *ProviderCost {
+	return &ProviderCost{Provider: providerOpenRouter, CostUSD: new(usd), Complete: true}
+}
+
+func partialCost(usd float64) *ProviderCost {
+	return &ProviderCost{Provider: providerOpenRouter, CostUSD: new(usd)}
+}
+
 func deliveryFixture() Snapshot {
 	observed := time.Date(2026, 9, 8, 11, 0, 0, 0, time.UTC)
 	state := SourceObservation{ObservedAt: observed}
 	work := &WorkRef{System: "https://habitat.example", ID: "ticket-a", Key: "VE-1", URL: "https://habitat.example/work/VE-1"}
-	first := RunData{RunID: "run-1", Agent: "builder", RequestID: "request-1", Work: work, Started: "2026-09-08T09:00:00Z", Duration: 60, Exit: 1}
-	second := RunData{RunID: "run-2", Agent: "builder", RequestID: "request-2", Work: work, Started: "2026-09-08T09:05:00Z", Duration: 180, Exit: 130, Error: "cancelled"}
-	created := RunData{RunID: "run-3", Agent: "critic", Started: "2026-09-08T09:15:00Z", Duration: 120}
+	first := RunData{RunID: "run-1", Agent: "builder", RequestID: "request-1", Work: work, Started: "2026-09-08T09:00:00Z", Duration: 60, Exit: 1,
+		TokensIn: 10, TokensOut: 20, CacheRead: 100, ProviderCost: completeCost(0.01)}
+	second := RunData{RunID: "run-2", Agent: "builder", RequestID: "request-2", Work: work, Started: "2026-09-08T09:05:00Z", Duration: 180, Exit: 130, Error: "cancelled",
+		TokensIn: 20, TokensOut: 30, CacheRead: 100, ProviderCost: partialCost(0.02)}
+	created := RunData{RunID: "run-3", Agent: "critic", Started: "2026-09-08T09:15:00Z", Duration: 120, ProviderCost: completeCost(5.0)}
 	oldPR, newPR := "https://github.com/org/repo/pull/1", "https://github.com/org/repo/pull/2"
 	recent := first
 	recent.Work, recent.RequestID = nil, ""
 	return Snapshot{
 		Instance: Instance{ID: "vector", Label: "Vector", Root: "/data/vector", Forest: "/data/vector/.iron-forest/bin/forest", Sources: TicketSources{
 			Habitat: &HabitatSource{System: work.System, ReadSource: ReadSource{Endpoint: work.System, TokenEnv: "HABITAT_READ"}},
-			Tach:    &ReadSource{Endpoint: "https://tach.example/ingest", TokenEnv: "TACH_READ"},
 			Forge:   &ForgeSource{ReadSource: ReadSource{Endpoint: "https://api.github.com", TokenEnv: "FORGE_READ"}, WebURL: "https://github.com"},
 		}},
 		Config:                  ConfigData{Repo: "org/repo", Primary: "refs/heads/main"},
@@ -38,11 +48,6 @@ func deliveryFixture() Snapshot {
 			}, Items: map[string]HabitatItem{
 				work.ID:    {SourceObservation: state, ID: work.ID, Key: work.Key, Status: "in_progress", PRURLs: []string{oldPR, newPR}},
 				"ticket-b": {SourceObservation: state, ID: "ticket-b", Key: "VE-2", Status: "backlog"},
-			}},
-			Usage: UsageObservation{SourceObservation: state, AsOf: observed, Sessions: map[string]ProviderUsage{
-				first.RunID:   {SessionID: first.RunID, InputTokens: new(int64(10)), OutputTokens: new(int64(20)), CacheReadTokens: new(int64(100)), CostUSD: new(0.01), GenerationCount: new(1), PendingCount: new(0), Coverage: "complete"},
-				second.RunID:  {SessionID: second.RunID, InputTokens: new(int64(20)), OutputTokens: new(int64(30)), CacheReadTokens: new(int64(100)), CostUSD: new(0.02), GenerationCount: new(1), PendingCount: new(1), Coverage: "partial"},
-				created.RunID: {SessionID: created.RunID, CostUSD: new(5.0), GenerationCount: new(1), PendingCount: new(0), Coverage: "complete"},
 			}},
 			Forge: ForgeObservation{SourceObservation: state, Pulls: map[string]PullEvidence{
 				oldPR: {SourceObservation: state, URL: oldPR, BaseRef: "main", Merged: true, MergedAt: new(observed.Add(-110 * time.Minute)), SHA: "merge-one", MergedBy: "reviewer", MergerType: "User"},
@@ -70,7 +75,7 @@ func TestDeliveryDeduplicatesReopenedServedWorkWithoutChargingCreatedLinks(t *te
 	if ticket.RunCount != 2 || ticket.FailedRuns != 2 || ticket.LiveRuns != 0 || ticket.Duration != "4m 0s" || ticket.USD != "$0.03000000" {
 		t.Fatalf("duplicate/live/failed/cancelled Runs changed served totals: %+v", ticket)
 	}
-	if ticket.InputTokens != "30" || ticket.OutputTokens != "50" || ticket.CacheRead != "200" || ticket.Pending != 1 || ticket.Coverage != "partial" {
+	if ticket.InputTokens != "30" || ticket.OutputTokens != "50" || ticket.CacheRead != "200" || ticket.Coverage != "partial" || ticket.CostReported != 2 || ticket.CostUnknown != 0 {
 		t.Fatalf("provider subtotals or overlapping token categories were misrepresented: %+v", ticket)
 	}
 	if ticket.Tracker != "in_progress" || ticket.MergeSHA != "merge-one" || ticket.Latency != "10m 0s" || ticket.Runs[0].RequestID != "request-1" {
@@ -118,7 +123,7 @@ func TestNoWorkReceiptIsNotAnUnattributedExecution(t *testing.T) {
 	}
 	for _, id := range snapshotRunIDs(snapshot) {
 		if id == selection.RunID {
-			t.Fatal("no-work selection was submitted for provider usage accounting")
+			t.Fatal("no-work selection was submitted for source evidence queries")
 		}
 	}
 }
@@ -147,18 +152,49 @@ func TestConflictingExactPrimaryAssociationsDoNotSplitOrDuplicateCharges(t *test
 	}
 }
 
-func TestUnknownUsageCannotBecomeZeroOrForestEstimatedCost(t *testing.T) {
+func TestNativeProviderCostKeepsUnknownZeroAndPartialDistinct(t *testing.T) {
 	snapshot := onlyServedFixture()
 	snapshot.History.Runs[0].TokensIn = 900
-	snapshot.Delivery.Usage.Sessions = nil
+	snapshot.History.Runs[0].ProviderCost = nil
 	view := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
-	if view.USD != "Unknown" || view.InputTokens != "Unknown" || view.Coverage != "unknown" || view.UsageSessions != 0 {
-		t.Fatalf("missing provider evidence became a zero/Forest estimate: %+v", view)
+	if view.USD != "Unknown" || view.Coverage != "unknown" || view.CostReported != 0 || view.CostUnknown != 1 {
+		t.Fatalf("a Run without a reported charge became zero or an estimate: %+v", view)
 	}
-	snapshot.Delivery.Usage.Sessions = map[string]ProviderUsage{"run-1": {SessionID: "run-1", InputTokens: new(int64(0)), CostUSD: new(0.0), GenerationCount: new(0), PendingCount: new(0), Coverage: "complete"}}
+	if view.InputTokens != "900" {
+		t.Fatalf("native token counts were discarded with the missing charge: %+v", view)
+	}
+	snapshot.History.Runs[0].ProviderCost = completeCost(0.0)
 	view = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
-	if view.USD != "$0.00000000" || view.InputTokens != "0" || view.Coverage != "complete" {
+	if view.USD != "$0.00000000" || view.Coverage != "complete" || view.CostReported != 1 || view.CostUnknown != 0 {
 		t.Fatalf("explicit provider zero was lost: %+v", view)
+	}
+	snapshot.History.Runs[0].ProviderCost = partialCost(0.25)
+	view = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if view.USD != "$0.25000000" || view.Coverage != "partial" || view.Runs[0].Coverage != "partial" {
+		t.Fatalf("an open provider subtotal was reported as final: %+v", view)
+	}
+}
+
+func TestMixedRunCoverageNeverImpliesACompleteSubtotal(t *testing.T) {
+	snapshot := deliveryFixture()
+	snapshot.Status.Recent = nil
+	snapshot.History.Runs[1].ProviderCost = nil
+	view := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if view.USD != "$0.01000000" || view.Coverage != "partial" || view.CostUnknown != 1 || view.FirstDeliveryUSD != "Unknown" {
+		t.Fatalf("a known subtotal beside an unreported Run claimed completion: %+v", view)
+	}
+	snapshot.History.Runs[1].ProviderCost = completeCost(0.02)
+	view = ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if view.USD != "$0.03000000" || view.Coverage != "complete" || view.CostUnknown != 0 || view.FirstDeliveryUSD != "$0.03000000" {
+		t.Fatalf("fully reported Runs did not complete the subtotal: %+v", view)
+	}
+	// A stale history clock can hide later Runs, so an accounting subtotal is
+	// never promoted to complete from a window that may already be incomplete.
+	stale := time.Now()
+	snapshot.History.ObservedAt = stale.Add(-10 * time.Minute)
+	projected := ticketDeliveryView(snapshot, false, stale, time.Minute)
+	if projected.HistoryNotice == "" || projected.Tickets[0].USD != "$0.03000000" || projected.Tickets[0].Coverage != "partial" {
+		t.Fatalf("expired history still claimed a complete charge subtotal: %+v", projected)
 	}
 }
 
@@ -191,26 +227,6 @@ func TestTrackerDoneAndNonPrimaryMergeDoNotEstablishObservedPrimaryMerge(t *test
 	}
 }
 
-func TestSourceFailureRetainsUsageWithoutRenewingItsFreshness(t *testing.T) {
-	snapshot := onlyServedFixture()
-	snapshot.Instance.Sources.Habitat, snapshot.Instance.Sources.Forge = nil, nil
-	previous := snapshot.Delivery
-	reader := newSourceReader()
-	reader.lookup = func(string) (string, bool) { return "", false }
-	snapshot.Delivery = reader.collect(context.Background(), snapshot, previous)
-	view := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt.Add(time.Second), time.Minute).Tickets[0]
-	if snapshot.Delivery.Usage.ObservedAt != previous.Usage.ObservedAt || view.USD != "$0.01000000" || view.UsageFreshness != "stale" {
-		t.Fatalf("failed read erased or renewed provider evidence: %+v", view)
-	}
-	now := snapshot.History.ObservedAt.Add(2 * time.Minute)
-	snapshot.Delivery.Usage.Error = ""
-	snapshot.Delivery.Usage.ObservedAt = now
-	view = ticketDeliveryView(snapshot, false, now, time.Minute).Tickets[0]
-	if view.UsageFreshness != "stale" {
-		t.Fatalf("old Tach as_of became fresh when fetched again: %+v", view)
-	}
-}
-
 func TestTruncatedHistoryLeavesFirstDeliveryUnknown(t *testing.T) {
 	snapshot := onlyServedFixture()
 	item := snapshot.Delivery.Habitat.Items["ticket-a"]
@@ -226,7 +242,6 @@ func TestTicketFragmentKeepsCredentialsServerSideAndEscapesTrackerContent(t *tes
 	snapshot := onlyServedFixture()
 	const secret = "never-render-source-credential"
 	t.Setenv("HABITAT_READ", secret)
-	t.Setenv("TACH_READ", secret)
 	t.Setenv("FORGE_READ", secret)
 	item := snapshot.Delivery.Habitat.Items["ticket-a"]
 	item.Title = "<script>alert('tracker')</script>"
@@ -328,7 +343,7 @@ func TestChangesReceiptCompletesVerifierExecutionWithoutApprovingCandidate(t *te
 		t.Fatalf("valid changes verdict was lost or promoted to approval: %+v", ticket)
 	}
 	if ticket.Runs[1].Completion != "completed" || ticket.Runs[1].CompletionEvidence != ticket.ReviewURL || ticket.Runs[1].USD != "Unknown" ||
-		ticket.Runs[1].Coverage != "unknown" || ticket.USDCompact != "$0.01" || ticket.Coverage != "partial" || ticket.MissingUsage != 1 {
+		ticket.Runs[1].Coverage != "unknown" || ticket.USDCompact != "$0.01" || ticket.Coverage != "partial" || ticket.CostUnknown != 1 {
 		t.Fatalf("Verifier completion became missing work, quality failure, or free usage: %+v", ticket)
 	}
 }
@@ -411,10 +426,9 @@ func TestStaleSourcesCannotKeepCurrentReadinessWhileFactsRemainVisible(t *testin
 func TestConflictingCostCannotClaimCompleteFirstDeliverySubtotal(t *testing.T) {
 	snapshot := onlyServedFixture()
 	conflict := snapshot.History.Runs[0]
-	conflict.RunID = "ambiguous-run"
+	conflict.RunID, conflict.ProviderCost = "ambiguous-run", completeCost(10.0)
 	snapshot.History.Runs = append(snapshot.History.Runs, conflict)
 	snapshot.Delivery.Habitat.Links = []HabitatLink{{RunID: conflict.RunID, WorkItemID: "ticket-b", Relationship: "served"}}
-	snapshot.Delivery.Usage.Sessions[conflict.RunID] = ProviderUsage{SessionID: conflict.RunID, CostUSD: new(10.0), GenerationCount: new(1), PendingCount: new(0), Coverage: "complete"}
 	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
 	if ticket.USD != "$0.01000000" || ticket.Coverage != "partial" || ticket.FirstDeliveryUSD != "Unknown" || ticket.Stage != "Evidence unavailable" {
 		t.Fatalf("conflicting excluded Run produced a falsely complete first-delivery cost: %+v", ticket)

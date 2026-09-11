@@ -70,63 +70,6 @@ func TestHabitatReadsEveryPageAndRejectsOutOfScopeRunLinks(t *testing.T) {
 	}
 }
 
-func TestTachDuplicateSessionsCannotBecomeDoubleCharges(t *testing.T) {
-	var duplicate atomic.Bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/ingest/v1/provider-usage/query" || r.Header.Get("x-query-key") != "query-only" || r.Header.Get("Authorization") != "" || r.Header.Get("x-ingest-key") != "" {
-			t.Errorf("Tach request crossed its query-only boundary")
-			w.WriteHeader(403)
-			return
-		}
-		var body struct {
-			Source string   `json:"source"`
-			IDs    []string `json:"session_ids"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Source != "iron-forest" || len(body.IDs) != 1 || body.IDs[0] != "run-1" {
-			t.Errorf("Tach query must carry the exact source and unique Run IDs")
-			w.WriteHeader(400)
-			return
-		}
-		sessions := []ProviderUsage{{SessionID: "run-1", CostUSD: new(0.125), InputTokens: new(int64(10)), GenerationCount: new(1), PendingCount: new(0), Coverage: "complete"}}
-		if duplicate.Load() {
-			sessions = append(sessions, sessions[0])
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"schema": "tach.provider-usage.v1", "as_of": "2026-09-08T11:00:00Z", "sessions": sessions})
-	}))
-	defer server.Close()
-	snapshot := onlyServedFixture()
-	snapshot.Instance.Sources = TicketSources{Tach: &ReadSource{Endpoint: server.URL + "/ingest", TokenEnv: "TACH_QUERY"}}
-	reader := newSourceReader()
-	reader.lookup = func(name string) (string, bool) { return "query-only", name == "TACH_QUERY" }
-	snapshot.Delivery = reader.collect(context.Background(), snapshot, DeliverySources{})
-	view := ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
-	if view.USD != "$0.12500000" || view.Coverage != "complete" {
-		t.Fatalf("valid provider observation unavailable: %+v", view)
-	}
-	duplicate.Store(true)
-	snapshot.Delivery = reader.collect(context.Background(), snapshot, DeliverySources{})
-	view = ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
-	if snapshot.Delivery.Usage.Error == "" || view.USD != "Unknown" {
-		t.Fatalf("duplicate sessions became charges: %+v", view)
-	}
-}
-
-func TestTachMissingCoverageCountsStayUnknown(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"schema":"tach.provider-usage.v1","as_of":"2026-09-08T11:00:00Z","sessions":[{"session_id":"run-1","cost_usd":0,"coverage":"complete"}]}`)
-	}))
-	defer server.Close()
-	snapshot := onlyServedFixture()
-	snapshot.Instance.Sources = TicketSources{Tach: &ReadSource{Endpoint: server.URL, TokenEnv: "READ"}}
-	reader := newSourceReader()
-	reader.lookup = func(string) (string, bool) { return "read-only", true }
-	snapshot.Delivery = reader.collect(context.Background(), snapshot, DeliverySources{})
-	view := ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
-	if snapshot.Delivery.Usage.Error == "" || view.USD != "Unknown" || view.UsageSessions != 0 {
-		t.Fatalf("missing receipt/pending fields were silently accepted as zero: %+v", view)
-	}
-}
-
 func TestSourceRedirectCannotForwardReadCredentials(t *testing.T) {
 	var reached atomic.Bool
 	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,11 +94,11 @@ func TestAbsentReadCredentialNeverBorrowsAnIngestOrWorkerCredential(t *testing.T
 	var reached atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Store(true); fmt.Fprint(w, `{}`) }))
 	defer server.Close()
-	t.Setenv("TACH_INGEST_KEY", "worker-write-credential")
+	t.Setenv("CANOPY_UNRELATED_WRITE_KEY", "worker-write-credential")
 	t.Setenv("CANOPY_MISSING_READ_TOKEN", "")
 	reader := newSourceReader()
 	var response any
-	err := reader.read(context.Background(), http.MethodPost, server.URL, "CANOPY_MISSING_READ_TOKEN", "x-query-key", map[string]any{"source": "iron-forest"}, &response)
+	err := reader.read(context.Background(), http.MethodPost, server.URL, "CANOPY_MISSING_READ_TOKEN", "x-query-key", map[string]any{"query": "configured-source"}, &response)
 	if err == nil || reached.Load() || strings.Contains(err.Error(), "worker-write-credential") {
 		t.Fatalf("read credential absence crossed source boundary: reached=%v error=%v", reached.Load(), err)
 	}

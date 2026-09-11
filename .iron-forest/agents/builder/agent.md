@@ -26,7 +26,8 @@ Gate.
 Work only in the assigned worktree and never modify `master`. Keep credentials
 out of files, commands, prompts, and output. Canopy is a read-only operator
 view over external Iron Forest instances: use the versioned `forest.cli.v2`
-interface and configured read-only Habitat, Tach and forge APIs. Do not import
+interface, the configured read-only Habitat and forge APIs, and the provider
+charge a Run reports in its own native history. Do not import
 Iron Forest, inspect `.iron-forest/runtime`, open its Ledger, or add mutation routes. Do not invent refs, retry loops, or force
 flags.
 
