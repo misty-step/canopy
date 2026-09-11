@@ -136,6 +136,12 @@ func scanDevelopmentRoot(parent string, out map[string]Instance) {
 			continue
 		}
 
+		// Linked worktrees have a .git file (gitdir pointer), not a directory.
+		// A worktree is not an independent factory checkout.
+		if gitInfo, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil && !gitInfo.IsDir() {
+			continue
+		}
+
 		if _, exists := out[repoPath]; exists {
 			continue
 		}

@@ -53,3 +53,45 @@ func TestDiscoveryRequiresAnInstalledProfile(t *testing.T) {
 		t.Fatalf("discovery must use only a complete pinned instance profile, got %+v", out)
 	}
 }
+
+func TestDiscoverySkipsLinkedWorktrees(t *testing.T) {
+	parent := t.TempDir()
+	makeProfile := func(name string) string {
+		t.Helper()
+		repo := filepath.Join(parent, name)
+		profile := filepath.Join(repo, ".iron-forest", "bin")
+		if err := os.MkdirAll(profile, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, ".iron-forest", "config.yaml"), []byte("repo: org/"+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(profile, "forest"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return repo
+	}
+
+	primary := makeProfile("iron-forest")
+	if err := os.MkdirAll(filepath.Join(primary, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	worktree := makeProfile("iron-forest-mis-64")
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: /tmp/fake.git/worktrees/mis-64\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := make(map[string]Instance)
+	scanDevelopmentRoot(parent, out)
+
+	if _, ok := out[primary]; !ok {
+		t.Fatalf("expected primary checkout %s to be discovered: %v", primary, out)
+	}
+	if _, ok := out[worktree]; ok {
+		t.Fatalf("linked worktree %s must not be discovered: %v", worktree, out)
+	}
+	if len(out) != 1 {
+		t.Fatalf("discovered %d instances, want 1: %v", len(out), out)
+	}
+}
