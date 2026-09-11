@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"html/template"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -21,21 +22,23 @@ const (
 	freshnessSchedulingSlack = time.Second
 )
 
-// InstanceState is the volatile state Canopy keeps for one configured
-// instance. Snapshot is deliberately only replaced after a successful full
-// collection: a failed refresh cannot make a previously useful projection
-// disappear.
+// InstanceState retains independent status and optional observations. Every
+// published Snapshot is immutable; only status success renews LastSuccess.
 type InstanceState struct {
-	Snapshot    *Snapshot
-	LastSuccess time.Time
-	LastAttempt time.Time
-	Err         error
+	Snapshot          *Snapshot
+	LastSuccess       time.Time
+	LastAttempt       time.Time
+	Err               error
+	refreshing        bool
+	refreshingDetails bool
+	refreshingSources bool
 }
 
 type instanceWorker struct {
-	wake    chan struct{}
-	cancel  context.CancelFunc
-	started bool
+	wake        chan struct{}
+	sourcesWake chan struct{}
+	cancel      context.CancelFunc
+	started     bool
 }
 
 // App owns the in-memory projection and the bounded refresh workers. The
@@ -45,6 +48,7 @@ type App struct {
 	inventory Inventory
 	collector Collector
 	templates *template.Template
+	reader    sourceReader
 
 	mu      sync.RWMutex
 	states  map[string]*InstanceState
@@ -67,7 +71,7 @@ func NewApp(inventory Inventory, collector Collector, templates *template.Templa
 			continue
 		}
 		states[instance.ID] = &InstanceState{}
-		workers[instance.ID] = &instanceWorker{wake: make(chan struct{}, 1)}
+		workers[instance.ID] = newInstanceWorker()
 	}
 	selected := ""
 	if len(inventory.Instances) > 0 {
@@ -77,6 +81,7 @@ func NewApp(inventory Inventory, collector Collector, templates *template.Templa
 		inventory:  inventory,
 		collector:  collector,
 		templates:  templates,
+		reader:     newSourceReader(),
 		states:     states,
 		workers:    workers,
 		discovered: make(map[string]struct{}),
@@ -84,14 +89,15 @@ func NewApp(inventory Inventory, collector Collector, templates *template.Templa
 	}
 }
 
-// Start launches one worker per configured instance. Each worker executes its
-// collector synchronously, so a slow refresh cannot overlap a second refresh
-// for the same instance. Context cancellation terminates all workers.
+// Each instance has serialized status, stable-detail, and external-source
+// lanes. Optional work cannot occupy or renew the current-status lane.
 func (a *App) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	a.start.Do(func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
 		seen := make(map[string]struct{}, len(a.inventory.Instances))
 		for i := range a.inventory.Instances {
 			instance := a.inventory.Instances[i]
@@ -103,8 +109,7 @@ func (a *App) Start(ctx context.Context) {
 			if worker == nil || worker.started {
 				continue
 			}
-			worker.started = true
-			go a.refreshLoop(ctx, instance, worker)
+			a.startWorker(ctx, instance, worker)
 		}
 		// Start background periodic auto-discovery
 		go a.discoveryLoop(ctx)
@@ -120,11 +125,149 @@ func (a *App) discoveryLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			discovered, err := DiscoverLocalInstances(ctx)
-			if err == nil && len(discovered) > 0 {
+			if err == nil {
 				a.syncDiscoveredInstances(ctx, discovered)
 			}
 		}
 	}
+}
+
+func newInstanceWorker() *instanceWorker {
+	return &instanceWorker{wake: make(chan struct{}, 1), sourcesWake: make(chan struct{}, 1)}
+}
+
+// Caller holds a.mu; all lanes share one cancellation lifetime.
+func (a *App) startWorker(ctx context.Context, instance Instance, worker *instanceWorker) {
+	worker.started = true
+	ctx, worker.cancel = context.WithCancel(ctx)
+	go a.refreshLoop(ctx, instance, worker)
+	go a.detailsLoop(ctx, instance, worker)
+	go a.sourcesLoop(ctx, instance, worker)
+}
+
+func (a *App) detailsLoop(ctx context.Context, instance Instance, worker *instanceWorker) {
+	timer := time.NewTimer(0)
+	first := true
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			a.refreshDetailsOnce(ctx, instance)
+			if first {
+				first = false
+				select {
+				case worker.sourcesWake <- struct{}{}:
+				default:
+				}
+			}
+		}
+		timer.Reset(sourceRefreshInterval)
+	}
+}
+
+func (a *App) sourcesLoop(ctx context.Context, instance Instance, worker *instanceWorker) {
+	timer := time.NewTimer(sourceRefreshInterval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-worker.sourcesWake:
+		case <-timer.C:
+		}
+		a.refreshSourcesOnce(ctx, instance)
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(sourceRefreshInterval)
+	}
+}
+
+func (a *App) refreshDetailsOnce(parent context.Context, instance Instance) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	a.mu.Lock()
+	state := a.states[instance.ID]
+	if state == nil || state.refreshingDetails || parent.Err() != nil {
+		a.mu.Unlock()
+		return
+	}
+	state.refreshingDetails = true
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(parent, refreshTimeout)
+	next := Snapshot{}
+	if a.collector != nil {
+		next = a.collector.CollectDetails(ctx, instance)
+	}
+	cancel()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state.refreshingDetails = false
+	if a.states[instance.ID] != state || parent.Err() != nil {
+		return
+	}
+	snapshot := Snapshot{Instance: instance}
+	if state.Snapshot != nil {
+		snapshot = *state.Snapshot
+	}
+	retainDetail(&snapshot.Version, &snapshot.VersionObservation, next.Version, next.VersionObservation)
+	retainDetail(&snapshot.Config, &snapshot.ConfigObservation, next.Config, next.ConfigObservation)
+	retainDetail(&snapshot.Declarations, &snapshot.DeclarationsObservation, next.Declarations, next.DeclarationsObservation)
+	if next.History.ObservedAt.IsZero() && next.History.Error == "" {
+		next.History.Error = "Run history has not been observed"
+	}
+	snapshot.History = retainRunHistory(next.History, snapshot.History)
+	state.Snapshot = &snapshot
+}
+
+func retainDetail[T any](value *T, observation *SourceObservation, next T, observed SourceObservation) {
+	if observed.ObservedAt.IsZero() && observed.Error == "" {
+		observed.Error = "No successful observation"
+	}
+	if observed.Error != "" {
+		observation.Error = observed.Error
+		return
+	}
+	*value, *observation = next, observed
+}
+
+func (a *App) refreshSourcesOnce(parent context.Context, instance Instance) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	a.mu.Lock()
+	state := a.states[instance.ID]
+	if state == nil || state.Snapshot == nil || state.refreshingSources || parent.Err() != nil {
+		a.mu.Unlock()
+		return
+	}
+	input := *state.Snapshot
+	if !input.Delivery.AttemptedAt.IsZero() && time.Now().Before(input.Delivery.AttemptedAt.Add(sourceRefreshInterval)) {
+		a.mu.Unlock()
+		return
+	}
+	state.refreshingSources = true
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(parent, refreshTimeout)
+	next := a.reader.collect(ctx, input, input.Delivery)
+	next.AttemptedAt = time.Now().UTC()
+	cancel()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state.refreshingSources = false
+	if a.states[instance.ID] != state || parent.Err() != nil {
+		return
+	}
+	// Merge onto the latest status, not the status captured before HTTP reads.
+	snapshot := *state.Snapshot
+	snapshot.Delivery = next
+	state.Snapshot = &snapshot
 }
 
 func (a *App) refreshLoop(ctx context.Context, instance Instance, worker *instanceWorker) {
@@ -155,11 +298,11 @@ func (a *App) refreshLoop(ctx context.Context, instance Instance, worker *instan
 func (a *App) refreshInterval(id string) time.Duration {
 	a.mu.RLock()
 	selected := id != "" && id == a.selected
-	a.mu.RUnlock()
 	seconds := a.inventory.FleetIntervalSeconds
 	if selected {
 		seconds = a.inventory.SelectedIntervalSeconds
 	}
+	a.mu.RUnlock()
 	if seconds <= 0 {
 		if selected {
 			return defaultSelectedInterval
@@ -179,68 +322,48 @@ func (a *App) freshnessWindow(id string) time.Duration {
 	return a.refreshInterval(id) + refreshTimeout + freshnessSchedulingSlack
 }
 
-// refreshOnce records an attempt before invoking the collector and records
-// errors without clearing the last successful Snapshot.
+// In-flight guards also cover direct refresh calls. A removed/readded instance
+// has a different state identity, so late results cannot revive or overwrite it.
 func (a *App) refreshOnce(parent context.Context, instance Instance) {
-	attempt := time.Now().UTC()
+	if parent == nil {
+		parent = context.Background()
+	}
 	a.mu.Lock()
 	state := a.states[instance.ID]
-	if state == nil {
-		state = &InstanceState{}
-		a.states[instance.ID] = state
-	}
-	state.LastAttempt = attempt
-	previous := state.Snapshot
-	a.mu.Unlock()
-
-	if a.collector == nil {
-		a.recordRefresh(instance.ID, nil, errors.New("collector is not configured"))
+	if state == nil || state.refreshing || parent.Err() != nil {
+		a.mu.Unlock()
 		return
 	}
-	ctx := parent
-	cancel := func() {}
-	if parent == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel = context.WithTimeout(ctx, refreshTimeout)
-	snapshot, err := a.collector.Collect(ctx, instance)
-	if err == nil {
-		snapshot.Instance = instance
-		var previousSources DeliverySources
-		if previous != nil {
-			snapshot.History = retainRunHistory(snapshot.History, previous.History)
-			previousSources = previous.Delivery
-		}
-		if !previousSources.AttemptedAt.IsZero() && attempt.Before(previousSources.AttemptedAt.Add(sourceRefreshInterval)) {
-			snapshot.Delivery = previousSources
-		} else {
-			snapshot.Delivery = newSourceReader().collect(ctx, snapshot, previousSources)
-			snapshot.Delivery.AttemptedAt = attempt
+	state.refreshing = true
+	state.LastAttempt = time.Now().UTC()
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(parent, refreshTimeout)
+	var next Snapshot
+	err := errors.New("collector is not configured")
+	if a.collector != nil {
+		next, err = a.collector.Collect(ctx, instance)
+		if err == nil {
+			err = ctx.Err()
 		}
 	}
 	cancel()
-	a.recordRefresh(instance.ID, &snapshot, err)
-}
-
-func (a *App) recordRefresh(id string, snapshot *Snapshot, err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	state := a.states[id]
-	if state == nil {
-		state = &InstanceState{}
-		a.states[id] = state
+	state.refreshing = false
+	if a.states[instance.ID] != state || parent.Err() != nil {
+		return
 	}
+	state.Err = err
 	if err != nil {
-		state.Err = err
 		return
 	}
-	if snapshot == nil {
-		state.Err = errors.New("collector returned no snapshot")
-		return
+	snapshot := Snapshot{Instance: instance}
+	if state.Snapshot != nil {
+		snapshot = *state.Snapshot
 	}
-	state.Snapshot = snapshot
+	snapshot.Status, snapshot.CollectedAt = next.Status, next.CollectedAt
+	state.Snapshot = &snapshot
 	state.LastSuccess = time.Now().UTC()
-	state.Err = nil
 }
 
 func (a *App) state(id string) (InstanceState, bool) {
@@ -278,6 +401,15 @@ func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance
 	for _, existing := range a.inventory.Instances {
 		if _, wasDiscovered := a.discovered[existing.ID]; wasDiscovered {
 			if updated, stillPresent := discMap[existing.ID]; stillPresent {
+				if !reflect.DeepEqual(updated, existing) {
+					if worker := a.workers[existing.ID]; worker != nil && worker.cancel != nil {
+						worker.cancel()
+					}
+					a.states[existing.ID] = &InstanceState{}
+					worker := newInstanceWorker()
+					a.workers[existing.ID] = worker
+					a.startWorker(ctx, updated, worker)
+				}
 				newInstances = append(newInstances, updated)
 			} else {
 				// Obsolete discovered instance: cancel and clean up worker
@@ -308,7 +440,7 @@ func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance
 		newInstances = append(newInstances, disc)
 		a.discovered[disc.ID] = struct{}{}
 		a.states[disc.ID] = &InstanceState{}
-		worker := &instanceWorker{wake: make(chan struct{}, 1)}
+		worker := newInstanceWorker()
 		a.workers[disc.ID] = worker
 		added = append(added, disc)
 	}
@@ -327,10 +459,7 @@ func (a *App) syncDiscoveredInstances(ctx context.Context, discovered []Instance
 	for _, inst := range added {
 		worker := a.workers[inst.ID]
 		if worker != nil && !worker.started {
-			worker.started = true
-			wCtx, cancel := context.WithCancel(ctx)
-			worker.cancel = cancel
-			go a.refreshLoop(wCtx, inst, worker)
+			a.startWorker(ctx, inst, worker)
 		}
 	}
 }

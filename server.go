@@ -123,6 +123,7 @@ func selectWork(view *InstanceView, r *http.Request) error {
 		return errors.New("work selection requires one bounded system and immutable work id")
 	}
 	view.SelectedWork, view.SelectedSystem = work[0], system[0]
+	view.SelectedTicket = nil
 	for i := range view.Delivery.Tickets {
 		ticket := &view.Delivery.Tickets[i]
 		if ticket.ID == work[0] && ticket.System == system[0] {

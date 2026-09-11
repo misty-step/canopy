@@ -156,71 +156,7 @@ func (c *cliCollector) Collect(ctx context.Context, instance Instance) (Snapshot
 	if err := validateInstance(instance); err != nil {
 		return Snapshot{}, err
 	}
-	snapshot := Snapshot{Instance: instance, CollectedAt: time.Now().UTC()}
-	versionRaw, err := c.runJSON(ctx, instance, "version", []string{"version"})
-	if err != nil {
-		var cliErr *CLIError
-		// Exit 6 is invalid argument / unknown command in forest.cli.v2
-		if errors.As(err, &cliErr) && cliErr != nil && cliErr.Exit == 6 {
-			snapshot.Version = VersionData{BuildSHA: "unsupported"}
-		} else {
-			return Snapshot{}, err
-		}
-	} else {
-		if err := decodeCommandData(versionRaw, "version", &snapshot.Version); err != nil {
-			return Snapshot{}, err
-		}
-	}
-
-	configRaw, err := c.runJSON(ctx, instance, "config show", []string{"config", "show"})
-	if err != nil {
-		return Snapshot{}, err
-	}
-	if err := decodeCommandData(configRaw, "config show", &snapshot.Config); err != nil {
-		return Snapshot{}, err
-	}
-
-	listRaw, err := c.runJSON(ctx, instance, "declaration list", []string{"declaration", "list"})
-	if err != nil {
-		return Snapshot{}, err
-	}
-	var list struct {
-		Declarations []DeclarationData `json:"declarations"`
-	}
-	if err := decodeCommandData(listRaw, "declaration list", &list); err != nil {
-		return Snapshot{}, err
-	}
-	if list.Declarations == nil {
-		return Snapshot{}, commandDataError("declaration list", "data.declarations is null or missing")
-	}
-	snapshot.Declarations = make([]DeclarationData, 0, len(list.Declarations))
-	seenDeclarations := make(map[string]struct{}, len(list.Declarations))
-	for index, listed := range list.Declarations {
-		if err := validateRouteIdentifier(listed.Name, "declaration name"); err != nil {
-			return Snapshot{}, commandDataError("declaration list", fmt.Sprintf("declarations[%d]: %s", index, err))
-		}
-		if _, duplicate := seenDeclarations[listed.Name]; duplicate {
-			return Snapshot{}, commandDataError("declaration list", fmt.Sprintf("duplicate declaration %q", listed.Name))
-		}
-		seenDeclarations[listed.Name] = struct{}{}
-		declarationRaw, showErr := c.runJSON(ctx, instance, "declaration show", []string{"declaration", "show", listed.Name})
-		if showErr != nil {
-			return Snapshot{}, showErr
-		}
-		var declaration DeclarationData
-		if err := decodeCommandData(declarationRaw, "declaration show", &declaration); err != nil {
-			return Snapshot{}, err
-		}
-		if declaration.Name == "" {
-			// Older Forest builds omitted the repeated name from the show payload;
-			// the list identity is authoritative while all supplied fields remain.
-			declaration.Name = listed.Name
-		} else if declaration.Name != listed.Name {
-			return Snapshot{}, commandDataError("declaration show", fmt.Sprintf("returned name %q for %q", declaration.Name, listed.Name))
-		}
-		snapshot.Declarations = append(snapshot.Declarations, declaration)
-	}
-
+	snapshot := Snapshot{Instance: instance}
 	statusRaw, err := c.runJSON(ctx, instance, "status", []string{"status"})
 	if err != nil {
 		return Snapshot{}, err
@@ -228,8 +164,104 @@ func (c *cliCollector) Collect(ctx context.Context, instance Instance) (Snapshot
 	if err := decodeCommandData(statusRaw, "status", &snapshot.Status); err != nil {
 		return Snapshot{}, err
 	}
-	snapshot.History = c.collectRunHistory(ctx, instance)
+	snapshot.CollectedAt = time.Now().UTC()
 	return snapshot, nil
+}
+
+// Optional reads never run on the status path. Separate section budgets stop a
+// slow command from exhausting the budget of every later section.
+func (c *cliCollector) CollectDetails(ctx context.Context, instance Instance) Snapshot {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+	snapshot := Snapshot{Instance: instance}
+	snapshot.VersionObservation = observeDetail(ctx, 5*time.Second, func(ctx context.Context) error {
+		raw, err := c.runJSON(ctx, instance, "version", []string{"version"})
+		if err != nil {
+			return err
+		}
+		return decodeCommandData(raw, "version", &snapshot.Version)
+	})
+	snapshot.ConfigObservation = observeDetail(ctx, 5*time.Second, func(ctx context.Context) error {
+		raw, err := c.runJSON(ctx, instance, "config show", []string{"config", "show"})
+		if err != nil {
+			return err
+		}
+		return decodeCommandData(raw, "config show", &snapshot.Config)
+	})
+	snapshot.DeclarationsObservation = observeDetail(ctx, 10*time.Second, func(ctx context.Context) error {
+		var err error
+		snapshot.Declarations, err = c.collectDeclarations(ctx, instance)
+		return err
+	})
+	historyCtx, historyCancel := context.WithTimeout(ctx, 10*time.Second)
+	snapshot.History = c.collectRunHistory(historyCtx, instance)
+	historyCancel()
+	return snapshot
+}
+
+func observeDetail(parent context.Context, timeout time.Duration, read func(context.Context) error) SourceObservation {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	err := read(ctx)
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		return SourceObservation{Error: err.Error()}
+	}
+	return SourceObservation{ObservedAt: time.Now().UTC()}
+}
+
+func (c *cliCollector) collectDeclarations(ctx context.Context, instance Instance) ([]DeclarationData, error) {
+	snapshot := Snapshot{}
+	listRaw, err := c.runJSON(ctx, instance, "declaration list", []string{"declaration", "list"})
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Declarations []DeclarationData `json:"declarations"`
+	}
+	if err := decodeCommandData(listRaw, "declaration list", &list); err != nil {
+		return nil, err
+	}
+	if list.Declarations == nil {
+		return nil, commandDataError("declaration list", "data.declarations is null or missing")
+	}
+	if len(list.Declarations) > 256 {
+		return nil, commandDataError("declaration list", "more than 256 declarations")
+	}
+	snapshot.Declarations = make([]DeclarationData, 0, len(list.Declarations))
+	seenDeclarations := make(map[string]struct{}, len(list.Declarations))
+	for index, listed := range list.Declarations {
+		if err := validateRouteIdentifier(listed.Name, "declaration name"); err != nil {
+			return nil, commandDataError("declaration list", fmt.Sprintf("declarations[%d]: %s", index, err))
+		}
+		if _, duplicate := seenDeclarations[listed.Name]; duplicate {
+			return nil, commandDataError("declaration list", fmt.Sprintf("duplicate declaration %q", listed.Name))
+		}
+		seenDeclarations[listed.Name] = struct{}{}
+		declarationRaw, showErr := c.runJSON(ctx, instance, "declaration show", []string{"declaration", "show", listed.Name})
+		if showErr != nil {
+			return nil, showErr
+		}
+		var declaration DeclarationData
+		if err := decodeCommandData(declarationRaw, "declaration show", &declaration); err != nil {
+			return nil, err
+		}
+		if declaration.Name == "" {
+			// Older Forest builds omitted the repeated name from the show payload;
+			// the list identity is authoritative while all supplied fields remain.
+			declaration.Name = listed.Name
+		} else if declaration.Name != listed.Name {
+			return nil, commandDataError("declaration show", fmt.Sprintf("returned name %q for %q", declaration.Name, listed.Name))
+		}
+		snapshot.Declarations = append(snapshot.Declarations, declaration)
+	}
+
+	return snapshot.Declarations, nil
 }
 
 func (c *cliCollector) Logs(ctx context.Context, instance Instance, runID string, follow bool) (LogResult, error) {

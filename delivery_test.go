@@ -25,9 +25,11 @@ func deliveryFixture() Snapshot {
 			Tach:    &ReadSource{Endpoint: "https://tach.example/ingest", TokenEnv: "TACH_READ"},
 			Forge:   &ForgeSource{ReadSource: ReadSource{Endpoint: "https://api.github.com", TokenEnv: "FORGE_READ"}, WebURL: "https://github.com"},
 		}},
-		Config:  ConfigData{Repo: "org/repo", Primary: "refs/heads/main"},
-		History: RunHistory{SourceObservation: state, Runs: []RunData{first, second, created}},
-		Status:  StatusData{Recent: []RunData{recent, second}, LiveRuns: []LiveRunData{{RunID: first.RunID, Work: work}}},
+		Config:                  ConfigData{Repo: "org/repo", Primary: "refs/heads/main"},
+		ConfigObservation:       state,
+		DeclarationsObservation: state,
+		History:                 RunHistory{SourceObservation: state, Runs: []RunData{first, second, created}},
+		Status:                  StatusData{Recent: []RunData{recent, second}, LiveRuns: []LiveRunData{{RunID: first.RunID, Work: work}}},
 		Delivery: DeliverySources{
 			Habitat: HabitatObservation{SourceObservation: state, Links: []HabitatLink{
 				{RunID: first.RunID, WorkItemID: work.ID, Relationship: "served"},
@@ -235,7 +237,7 @@ func TestTicketFragmentKeepsCredentialsServerSideAndEscapesTrackerContent(t *tes
 		t.Fatal(err)
 	}
 	app := NewApp(Inventory{Instances: []Instance{snapshot.Instance}}, nil, templates)
-	app.recordRefresh(snapshot.Instance.ID, &snapshot, nil)
+	app.states[snapshot.Instance.ID] = &InstanceState{Snapshot: &snapshot, LastSuccess: time.Now()}
 	response := httptest.NewRecorder()
 	app.Handler().ServeHTTP(response, httptest.NewRequest("GET", "/fragments/instance?instance=vector", nil))
 	if response.Code != 200 {
@@ -285,8 +287,12 @@ func TestCurrentReviewRequiresExactKnownVerifierRunAndRevision(t *testing.T) {
 		{"untrusted account", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].Association = "NONE" }},
 		{"anonymous account", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].AuthorID = 0 }},
 		{"missing author", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].Author = "" }},
-		{"wrong comment source", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].URL = "https://github.com/org/repo/pull/99#issuecomment-91" }},
-		{"post-run edit", func(_ *Snapshot, pull *PullEvidence) { pull.ReviewReceipts[0].UpdatedAt = pull.ReviewReceipts[0].UpdatedAt.Add(time.Hour) }},
+		{"wrong comment source", func(_ *Snapshot, pull *PullEvidence) {
+			pull.ReviewReceipts[0].URL = "https://github.com/org/repo/pull/99#issuecomment-91"
+		}},
+		{"post-run edit", func(_ *Snapshot, pull *PullEvidence) {
+			pull.ReviewReceipts[0].UpdatedAt = pull.ReviewReceipts[0].UpdatedAt.Add(time.Hour)
+		}},
 		{"conflicting run provenance", func(snapshot *Snapshot, _ *PullEvidence) {
 			run := snapshot.History.Runs[1]
 			run.Work = &WorkRef{System: "https://habitat.example", ID: "ticket-b", Key: "VE-2"}
@@ -357,7 +363,7 @@ func TestObservedMergeRequiresSeparateExactApprovalAndTrackerReconciliation(t *t
 func TestHistoricalMergeDoesNotHideReopenedCurrentCandidate(t *testing.T) {
 	snapshot := reviewedFixture("approve")
 	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
-	if ticket.Stage != "Ready for human review" || !ticket.Delivered || ticket.PRURL != "https://github.com/org/repo/pull/1" ||
+	if ticket.NeedsAttention || ticket.ActionOwner != "" || !ticket.Delivered || ticket.PRURL != "https://github.com/org/repo/pull/1" ||
 		ticket.CurrentPRURL != "https://github.com/org/repo/pull/2" || ticket.HeadSHA != strings.Repeat("a", 40) ||
 		ticket.MergeSHA != "merge-one" || ticket.FirstDeliveryUSD != "$0.01000000" {
 		t.Fatalf("historical merge/cost erased or completed the reopened current candidate: %+v", ticket)
@@ -372,7 +378,7 @@ func TestHistoricalMergeDoesNotHideReopenedCurrentCandidate(t *testing.T) {
 }
 
 func TestStaleSourcesCannotKeepCurrentReadinessWhileFactsRemainVisible(t *testing.T) {
-	for _, source := range []string{"tracker", "history", "pull", "receipt", "parent"} {
+	for _, source := range []string{"tracker", "history", "pull", "receipt", "parent", "config", "declarations"} {
 		t.Run(source, func(t *testing.T) {
 			snapshot := reviewedFixture("approve")
 			old := snapshot.History.ObservedAt.Add(-10 * time.Minute)
@@ -387,6 +393,10 @@ func TestStaleSourcesCannotKeepCurrentReadinessWhileFactsRemainVisible(t *testin
 				pull.ObservedAt = old
 			case "receipt":
 				pull.ReviewSource.ObservedAt = old
+			case "config":
+				snapshot.ConfigObservation.ObservedAt = old
+			case "declarations":
+				snapshot.DeclarationsObservation.ObservedAt = old
 			}
 			snapshot.Delivery.Habitat.Items[item.ID] = item
 			snapshot.Delivery.Forge.Pulls[item.PRURL] = pull
@@ -484,7 +494,7 @@ func TestHistoricalAccountReceiptRemainsEvidenceWithAutomationCaveat(t *testing.
 			receipt.Author, receipt.AuthorType, receipt.AuthorID, receipt.Association = "moomooskycow", "User", 788415, "MEMBER"
 			snapshot.Delivery.Forge.Pulls[item.PRURL] = pull
 			ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
-			if ticket.Stage != "Ready for human review" || ticket.ReviewDecision != "approve" ||
+			if ticket.ReviewDecision != "approve" ||
 				ticket.ReviewSHA != pull.HeadSHA || !strings.Contains(ticket.ReviewWarning, receipt.Author) {
 				t.Fatalf("historical accountable author lost valid exact-revision evidence or its trust caveat: %+v", ticket)
 			}
@@ -505,7 +515,56 @@ func TestReviewTrustUsesKernelIdentityRatherThanRequestNamingConvention(t *testi
 	snapshot := reviewedFixture("approve")
 	snapshot.History.Runs[1].RequestID = "another-profile/verification/batch-7"
 	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
-	if ticket.Stage != "Ready for human review" || ticket.ReviewWarning != "" || ticket.ReviewRunID != snapshot.History.Runs[1].RunID {
+	if ticket.ReviewWarning != "" || ticket.ReviewRunID != snapshot.History.Runs[1].RunID {
 		t.Fatalf("opaque Kernel request id blocked an otherwise valid exact Run/work/revision receipt: %+v", ticket)
+	}
+}
+
+func TestCurrentExecutionSurvivesUnavailableOptionalEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	work := &WorkRef{System: "https://habitat.example", ID: "change", Key: "CHANGE-1"}
+	snapshot := Snapshot{Status: StatusData{LiveRuns: []LiveRunData{{
+		RunID: "attempt", Agent: "builder", RequestID: "explicit-request", Work: work,
+		StartedAt: now.Format(time.RFC3339Nano), Elapsed: "12s",
+	}}}}
+	ticket := ticketDeliveryView(snapshot, false, now, time.Minute).Tickets[0]
+	if !ticket.CurrentKnown || len(ticket.CurrentRuns) != 1 || ticket.CurrentRuns[0].RequestID != "explicit-request" || ticket.CurrentRuns[0].Duration != "12s" {
+		t.Fatalf("missing optional details hid actual current execution: %+v", ticket)
+	}
+	if ticket.Stage != "In progress" || ticket.HeadSHA != "" || ticket.ReviewDecision != "" || ticket.Coverage != "unknown" {
+		t.Fatalf("current execution invented optional evidence: %+v", ticket)
+	}
+	snapshot.Status.LiveRuns = nil
+	snapshot.Status.Recent = []RunData{{RunID: "attempt", Agent: "builder", RequestID: "explicit-request",
+		Work: work, Started: now.Format(time.RFC3339Nano), Exit: 130, Error: "cancelled"}}
+	ticket = ticketDeliveryView(snapshot, false, now, time.Minute).Tickets[0]
+	if len(ticket.CurrentRuns) != 0 || ticket.Runs[0].Cancelled || ticket.Stage == "Complete" || ticket.ReviewDecision != "" {
+		t.Fatalf("legacy exit or error text became a work verdict: %+v", ticket)
+	}
+	snapshot.Status.Recent[0].Outcome = "cancelled"
+	snapshot.Status.Recent[0].Recovery = &RecoveryData{Path: ".iron-forest/runtime/worktrees/attempt", BaseRevision: strings.Repeat("b", 40)}
+	ticket = ticketDeliveryView(snapshot, false, now, time.Minute).Tickets[0]
+	if !ticket.Runs[0].Cancelled || ticket.Runs[0].Recovery == nil || !ticket.NeedsAttention || ticket.ActionOwner != "Operator" || ticket.HeadSHA != "" {
+		t.Fatalf("explicit cancellation lost recovery or promoted its base to a candidate: %+v", ticket)
+	}
+	snapshot.Status.LiveRunError = "live observation unavailable"
+	ticket = ticketDeliveryView(snapshot, false, now, time.Minute).Tickets[0]
+	if ticket.CurrentKnown {
+		t.Fatal("failed live observation became known inactivity")
+	}
+}
+
+func TestSingleObservedChangeOpensWithoutBroadeningUnknownSelection(t *testing.T) {
+	now := time.Now()
+	snapshot := Snapshot{Status: StatusData{LiveRuns: []LiveRunData{{
+		RunID: "run", Work: &WorkRef{System: "test-system", ID: "only-change"},
+	}}}}
+	view := instanceView(Instance{ID: "one"}, InstanceState{Snapshot: &snapshot, LastSuccess: now}, true, now, time.Minute)
+	if view.SelectedTicket == nil || view.SelectedWork != "only-change" {
+		t.Fatal("sole observed change did not open")
+	}
+	request := httptest.NewRequest("GET", "/?system=test-system&work=not-observed", nil)
+	if err := selectWork(&view, request); err != nil || view.SelectedTicket != nil || view.SelectedWork != "not-observed" {
+		t.Fatalf("unknown explicit selection borrowed the default's evidence: %+v, %v", view, err)
 	}
 }

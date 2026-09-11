@@ -1,18 +1,20 @@
 # Canopy
 
-Canopy is a read-only work and evidence view across independent Iron Forest instances. A searchable work index opens an evidence reader for the current decision, exact-revision review, observed merge, provider subtotal and Run attempts. Desktop inspection keeps the index beside the evidence; mobile gives the selected work its own reading view. Runtime details remain available without dominating the page. One Go binary embeds the HTML, styles, scripts and fonts; there is no frontend application server or second business ledger.
+Canopy is a read-only view of one software change and its evidence across independent Iron Forest instances. A sole observed work item opens directly; a bounded, searchable work disclosure selects among multiple items. The selected change keeps the full reading width for the request, actual execution, candidate, revision-bound review, blocker or operator action, elapsed time, and provider subtotal with coverage. Declarations, infrastructure and aggregate history stay behind native disclosures. One Go binary embeds the HTML, styles, scripts and fonts; there is no frontend application server or second business ledger.
 
 ## Boundary
 
 Canopy treats every Forest as an external service. It invokes only the versioned `forest.cli.v2` JSON interface, locally, through `ssh`, or through an authenticated private observation endpoint. It does not import Iron Forest code, read `.iron-forest/runtime` files, open the Ledger database, or expose mutation routes. Optional Habitat, Tach and GitHub-compatible forge APIs supply independent read-only ticket and provider evidence; Canopy keeps no money ledger.
 
-A failed refresh never becomes an empty healthy state. Canopy retains the last successful snapshot and marks it stale. An instance without a successful snapshot is unknown. Trigger polling and Run outcomes remain separate signals.
+Current status and optional details have independent clocks. A failed status read retains the last successful status and marks it stale; no first status success is unknown. A version, configuration, declaration, history or external-source failure cannot hold or renew current status. Each failed optional section retains only its own last-good observation with its original timestamp; first failures remain unknown.
 
 ## Inspect work
 
-The overview distinguishes **Needs you**, **In progress**, and observed **Merged**
-counts. Open a work item to inspect its request, candidate, revision-bound review,
-merge and tracker state independently. A merge does not imply deployment.
+Open a work item to inspect its request, candidate, revision-bound review,
+merge and tracker state independently. Current execution comes from exact Run
+provenance in status, even when optional history or external sources are slow.
+No live execution is not success, rejection or cancellation. An agent exit is
+not a verifier verdict, and a merge does not imply deployment.
 
 The instance switcher uses ordinary page navigation. Each fleet refresh carries
 the page's instance identity, so another viewer's activity cannot relabel it.
@@ -42,6 +44,13 @@ unknown Runs or failed reads. Diagnostics label the Ledger percentage as an
 **exit-zero rate**, never agent quality. New Forest `outcome`, `process_exit`
 and `completion` fields are independent; legacy missing facts remain unknown.
 
+For explicitly recorded cancelled executions, Run attempts can disclose optional
+`recovery` with a private repo-relative native Git worktree path and optional base
+revision. "Worktree retained" is a historical observation, subject to manual
+disposal—not an archive, download, restore instruction, candidate revision or
+permission to resume. Missing recovery stays unknown, not clean. Canopy never
+reads or serves worktree contents and does not manage expiry.
+
 Provider cost is a subtotal with explicit complete/partial/unknown coverage.
 The index rounds for reading; work details retain full precision and the
 first-delivery allocation caveats. Human effort and infrastructure are not part
@@ -49,12 +58,12 @@ of this provider subtotal.
 
 ## Read the mandate
 
-The instance view and fleet switcher project optional `intent` from the effective
-`forest config show --json` response. Its fields are `purpose` (string),
+Inside Runtime details, the instance view projects optional `intent` from the
+effective `forest config show --json` response. Its fields are `purpose` (string),
 `outcomes` (string array), `constraints` (string array), and `release_policy`
 (string). This is **declared policy**, not proof of enforcement or a new Canopy
-configuration source. The mandate disclosure reuses the existing native
-disclosure and refresh behavior.
+configuration source. Its configuration observation time is independent of
+current status.
 
 An unobserved configuration, an absent intent object, explicitly empty fields
 and a stale retained declaration remain distinct. Canopy never infers mandate
@@ -157,13 +166,24 @@ Forge credentials need read access to the declared repository's pull requests an
 
 Set `automation_login` to the dedicated principal expected to publish review receipts. It qualifies author trust; it does not invalidate historical receipts from other accountable accounts. A usable `forest.review.v1` receipt requires a positive account ID, a `User` or `Bot` author with `OWNER`, `MEMBER` or `COLLABORATOR` repository association, the exact current candidate, matching immutable work provenance, a known Verifier Run, its lifetime window and a canonical comment URL. Request IDs are opaque; no profile-specific naming convention is required.
 
+Use the exact GitHub user login (for example, `repository-worker`) or GitHub App
+bot login (for example, `iron-forest[bot]`); keep the literal `[bot]` suffix.
+Canopy preserves the complete configured identity. Login safety validation permits
+that one terminal suffix while still rejecting an empty name, other brackets,
+path separators, whitespace, controls and unsafe punctuation; it does not attempt
+to reproduce GitHub's account or App registration policies. This exception is
+only for `forge.automation_login`; instance, work-item and Run route identifiers
+still reject brackets.
+
 A different accountable author or an unconfigured `automation_login` produces a named caveat without suppressing an otherwise valid review or completed delivery. Freshly observed missing, invalid or ambiguous receipts leave an open candidate `Awaiting verification` with the specific reason; unavailable or stale sources read `Evidence unavailable`. Review, current tracker state and historical delivery are separate; reopening work does not erase earlier observed merges or costs. Neither an author match nor a GitHub `User` merger proves credential isolation or human intent. Host/forge policy, not Canopy, enforces separation between worker and human authority.
 
 When a separately scoped forge credential is unavailable, the R90 worker's authenticated observer can provide the narrow GitHub metadata read capability instead. Set `forge.endpoint` to the **same origin as `observer_url`** with path `/v1/github`, retain `web_url: https://github.com`, and use the same `FOREST_OBSERVATION_TOKEN` environment-variable name. The observer permits bounded GET metadata for the declared repository: `pulls/<id>`, paginated `pulls/<id>/reviews`, and paginated `issues/<id>/comments`. It projects required receipt/identity fields, constructs its own upstream HTTPS requests, strips incoming headers and bodies, and refuses redirects. Its worker GitHub credential never enters Canopy. A private HTTP forge source with another origin, path or credential name is rejected.
 
 Habitat currently returns at most 50 item-history changes. When that history is full or unavailable, or other needed evidence is incomplete, **first-delivery latency stays unknown**. The UI separately labels the interval to the earliest **observed** qualifying merge; it does not promote that observation to proven lifetime first delivery. Previously observed PR references and successful source responses remain in the same volatile refresh snapshot, not a new persisted ledger. A restart cannot recover PR references no longer exposed by Habitat.
 
-The core snapshot/Run history follows existing instance refresh cadence. Optional external sources refresh within that same worker about once a minute, with bounded requests. Failures retain the last successful source data with its original observation time and a stale/unavailable warning. Ticket totals deduplicate exact Run IDs across history/recent/live projections and exact served links. Created links do not assign served cost; conflicting primary associations assign cost to neither ticket and are visible. Failed/cancelled Run usage stays included. Token subcategories are shown separately, never blindly added to input/output. Null metrics, incomplete/pending coverage, missing Runs and explicit zero remain distinct; known values are subtotals until coverage is complete.
+Status invokes only `forest status --json --root ...` at the selected/fleet interval. Stable details and external sources each have a separately serialized, cancellable lane per instance; neither runs inside status collection. Detail collection has a 30-second total bound: version and configuration get up to 5 seconds each, declarations up to 10 seconds, and paginated history up to 10 seconds. Declarations are limited to 256 and history to 100,000 rows; exceeding a limit is an incomplete observation, never a complete ledger. Optional lanes wait about a minute between attempts; each external collection is bounded to 30 seconds. Version/configuration/declaration/history freshness expires after 91 seconds, independently of status. Per-source success clocks are never renewed by a failed read. State is volatile and removed with a discovered instance; late cancelled results cannot overwrite a readded instance.
+
+Ticket totals deduplicate exact Run IDs across history/recent/live projections and exact served links. Created links do not assign served cost; conflicting primary associations assign cost to neither ticket and are visible. Failed/cancelled Run usage stays included. Token subcategories are shown separately, never blindly added to input/output. Null metrics, incomplete/pending coverage, missing Runs and explicit zero remain distinct; known values are subtotals until coverage is complete.
 
 Lifetime provider USD is a known subtotal across all attributed Runs, including
 reopened work. First-delivery USD is separate: it requires proven first-merge
@@ -183,7 +203,7 @@ go build -o canopy .
 ./canopy -config canopy.json -listen 127.0.0.1:8080
 ```
 
-For the browser acceptance journey, inspect complete work, human review, changes requested, a merged item awaiting reconciliation, an incomplete review, active work and a zero-Run item. Search and combine categories, recover from no matches, follow a deep link and use Back/Forward. Leave disclosures open, type with a selected search range, and scroll/select a long receipt across consecutive refreshes. A new reviewed revision must start the receipt at the top; changed text must not inherit an old selection. Open the instance switcher during overlapping fleet/work refreshes, and verify that independent viewers retain their own instance context.
+For the browser acceptance journey, inspect complete work, verified work awaiting merge, changes requested, a merged item awaiting reconciliation, an incomplete review, active work and a zero-Run item. Search and combine categories, recover from no matches, follow a deep link and use Back/Forward. Leave disclosures open, type with a selected search range, and scroll/select a long receipt across consecutive refreshes. A new reviewed revision must start the receipt at the top; changed text must not inherit an old selection. Open the instance switcher during overlapping fleet/work refreshes, and verify that independent viewers retain their own instance context.
 
 At mobile width, primary work content must be readable without horizontal scrolling; diagnostic tables retain their own scroll regions. Exercise keyboard focus, the dedicated evidence view, retained and evicted logs, and navigation back to work. A failed source keeps last-good evidence visibly stale; no first observation remains unknown, and an empty inventory is distinct from a filter with no matches. Use isolated synthetic observations for these states; this exercise does not authorize tracker mutations or new paid work.
 
@@ -204,3 +224,16 @@ The interface uses Barlow Semi Condensed for identity/headings and IBM Plex Sans
 for UI and review prose. Monospace is reserved for exact identifiers and logs.
 The fonts are served locally under the SIL Open Font License; browsing Canopy
 does not contact a font CDN. Their notices are in `THIRD_PARTY_LICENSES`.
+
+## Explicit-request profile
+
+The active `.iron-forest` profile inherits one model from `defaults.yaml`:
+`openrouter/deepseek/deepseek-v4.1-flash`. All five declarations load the checked-in,
+credential-free `extensions/models.ts` registry; their existing tools, thinking
+and intervals remain unchanged. Registry prices are catalog metadata, not the
+provider billing authority displayed by Canopy. Credentials remain outside the
+profile in the protected runtime environment.
+
+Builder, Verifier and Fixer polls return exit 1 (no work); Critic and Tester keep
+their existing no-intake read-only polls. A timer or old backlog is not authority
+to start work. This source profile change does not start a Kernel or deploy it.

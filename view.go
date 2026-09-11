@@ -37,6 +37,8 @@ type InstanceView struct {
 	LedgerPassRate                                          string
 	Config                                                  ConfigViewModel
 	Errors                                                  []string
+	DetailSources                                           []EvidenceSourceView
+	ConfigFreshness                                         string
 	Delivery                                                TicketDeliveryView
 	SelectedWork, SelectedSystem                            string
 	SelectedTicket                                          *TicketView
@@ -199,13 +201,34 @@ func instanceView(instance Instance, state InstanceState, selected bool, now tim
 		Host:       instance.Host,
 		IsSelected: selected,
 		Freshness:  string(classifyFreshness(state, now, maxAge)),
-		Reachable:  state.Snapshot != nil && state.Err == nil,
+		Reachable:  !state.LastSuccess.IsZero() && state.Err == nil,
 		Errors:     []string{},
 		Triggers:   []TriggerViewModel{},
 		LiveRuns:   []LiveRunViewModel{},
 		RecentRuns: []RunViewModel{},
 		Agents:     []AgentViewModel{},
 	}
+	for _, source := range []struct {
+		name        string
+		observation SourceObservation
+	}{
+		{"Version", SourceObservation{}},
+		{"Configuration", SourceObservation{}},
+		{"Declarations", SourceObservation{}},
+	} {
+		if state.Snapshot != nil {
+			switch source.name {
+			case "Version":
+				source.observation = state.Snapshot.VersionObservation
+			case "Configuration":
+				source.observation = state.Snapshot.ConfigObservation
+			case "Declarations":
+				source.observation = state.Snapshot.DeclarationsObservation
+			}
+		}
+		view.DetailSources = append(view.DetailSources, evidenceSourceView(source.name, true, source.observation, false, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "Last successful optional observation"))
+	}
+	view.ConfigFreshness = view.DetailSources[1].State
 	if !state.LastSuccess.IsZero() {
 		view.LastObserved = formatTime(state.LastSuccess)
 	}
@@ -219,9 +242,9 @@ func instanceView(instance Instance, state InstanceState, selected bool, now tim
 		return view
 	}
 	snapshot := state.Snapshot
-	view.Repo = snapshot.Config.Repo
+	view.Repo = snapshot.Status.Repo
 	if view.Repo == "" {
-		view.Repo = snapshot.Status.Repo
+		view.Repo = snapshot.Config.Repo
 	}
 	view.Version = snapshot.Version.BuildSHA
 	if view.Version == "" {
@@ -240,6 +263,10 @@ func instanceView(instance Instance, state InstanceState, selected bool, now tim
 	view.ActiveRuns = len(view.LiveRuns)
 	view.RecentRuns = runViews(snapshot.Status.Recent)
 	view.Delivery = ticketDeliveryView(*snapshot, view.Freshness != string(Fresh), now, maxAge)
+	if len(view.Delivery.Tickets) == 1 {
+		view.SelectedTicket = &view.Delivery.Tickets[0]
+		view.SelectedWork, view.SelectedSystem = view.SelectedTicket.ID, view.SelectedTicket.System
+	}
 	if snapshot.Status.Ledger != nil {
 		view.HasLedger = true
 		view.LedgerRuns = snapshot.Status.Ledger.Runs

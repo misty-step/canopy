@@ -1,7 +1,7 @@
 ---
-model: openrouter/meta/muse-spark-1.3-contributor
 tools: read,grep,glob,bash,edit,write
 thinking: high
+extensions: [.iron-forest/extensions/models.ts]
 ---
 
 ## Work authority

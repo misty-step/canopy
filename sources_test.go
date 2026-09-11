@@ -204,10 +204,7 @@ func TestObserverPagedHistoryIncludesOlderFailedWork(t *testing.T) {
 	}))
 	defer server.Close()
 	instance := Instance{ID: "vector", Label: "Vector", Root: "/data/vector", Forest: "/data/vector/.iron-forest/bin/forest", ObserverURL: server.URL, ObserverTokenEnv: "OBSERVER_READ"}
-	snapshot, err := NewCLICollector(refreshTimeout).Collect(context.Background(), instance)
-	if err != nil {
-		t.Fatal(err)
-	}
+	snapshot := NewCLICollector(refreshTimeout).CollectDetails(context.Background(), instance)
 	view := ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
 	if snapshot.History.Error != "" || view.RunCount != 2 || view.FailedRuns != 1 || view.Duration != "1m 0s" || view.Started != "2026-09-08 09:00:00Z" {
 		t.Fatalf("status tail hid older failed work from HTTP observation: %+v; history=%+v", view, snapshot.History)
@@ -228,7 +225,7 @@ func TestForgeProtocolFailureRetainsObservedMergeWithoutRenewingIt(t *testing.T)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"merged": true, "state": "closed", "merged_at": mergedAt, "merge_commit_sha": "verified-merge", "html_url": prURL,
-			"head": map[string]string{"sha": strings.Repeat("a", 40)},
+			"head":      map[string]string{"sha": strings.Repeat("a", 40)},
 			"base":      map[string]any{"ref": "main", "repo": map[string]string{"full_name": "org/repo"}},
 			"merged_by": map[string]string{"login": "human-reviewer", "type": "User"},
 		})
@@ -283,7 +280,7 @@ func TestExplicitHabitatInventoryIncludesZeroRunItemsWithoutBroadeningScope(t *t
 	}
 	for _, ticket := range view.Tickets {
 		if ticket.RunCount != 0 || ticket.USD != "Unknown" || ticket.USDCompact != "Unknown" || ticket.Coverage != "unknown" ||
-			ticket.Stage != "Not started" || ticket.ActionOwner != "Operator" || ticket.TrackerFreshness != "fresh" {
+			ticket.LiveRuns != 0 || ticket.ActionOwner != "Operator" || ticket.TrackerFreshness != "fresh" {
 			t.Fatalf("zero-run inventory invented cost, activity or authorization: %+v", ticket)
 		}
 	}
@@ -326,7 +323,7 @@ func TestPaginatedReviewReceiptsRetainSourceFreshnessIndependentlyOfNewHead(t *t
 				"base": map[string]any{"ref": "main", "repo": map[string]string{"full_name": "org/repo"}}, "head": map[string]string{"sha": head}})
 		case "/v1/github/repos/org/repo/pulls/2/reviews":
 			_ = json.NewEncoder(w).Encode([]any{map[string]any{"state": "APPROVED", "commit_id": receipt.Revision,
-				"submitted_at": receipt.CreatedAt, "html_url": prURL+"#pullrequestreview-1",
+				"submitted_at": receipt.CreatedAt, "html_url": prURL + "#pullrequestreview-1",
 				"user": map[string]string{"login": "operator-account", "type": "User"}}})
 		case "/v1/github/repos/org/repo/issues/2/comments":
 			if r.URL.Query().Get("per_page") != "100" {
@@ -345,7 +342,7 @@ func TestPaginatedReviewReceiptsRetainSourceFreshnessIndependentlyOfNewHead(t *t
 				_ = json.NewEncoder(w).Encode(placeholders)
 			case "2":
 				secondPage.Store(true)
-				_ = json.NewEncoder(w).Encode([]any{map[string]any{"id": receipt.ID, "body": "<!-- forest.review.v1 -->\n"+string(payload),
+				_ = json.NewEncoder(w).Encode([]any{map[string]any{"id": receipt.ID, "body": "<!-- forest.review.v1 -->\n" + string(payload),
 					"html_url": receipt.URL, "created_at": receipt.CreatedAt, "updated_at": receipt.UpdatedAt,
 					"author_association": receipt.Association, "user": map[string]any{"id": receipt.AuthorID, "login": receipt.Author, "type": receipt.AuthorType}}})
 			default:
@@ -363,13 +360,14 @@ func TestPaginatedReviewReceiptsRetainSourceFreshnessIndependentlyOfNewHead(t *t
 	snapshot.Instance.Sources.Forge.Endpoint = server.URL + "/v1/github"
 	state := SourceObservation{ObservedAt: time.Now().UTC()}
 	snapshot.History.SourceObservation = state
+	snapshot.ConfigObservation, snapshot.DeclarationsObservation = state, state
 	snapshot.Delivery.Habitat.SourceObservation = state
 	item := snapshot.Delivery.Habitat.Items["ticket-a"]
 	item.SourceObservation, item.PRURLs = state, []string{prURL}
 	snapshot.Delivery.Habitat.Items[item.ID] = item
 	snapshot.Delivery.Forge = reader.forge(context.Background(), *snapshot.Instance.Sources.Forge, snapshot.Config, snapshot.Delivery.Habitat, ForgeObservation{})
 	ticket := ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
-	if !secondPage.Load() || ticket.Stage != "Ready for human review" || ticket.ReviewURL != receipt.URL || ticket.ReviewAuthor != receipt.Author ||
+	if !secondPage.Load() || ticket.ReviewURL != receipt.URL || ticket.ReviewAuthor != receipt.Author ||
 		len(ticket.AccountApprovals) != 1 || ticket.AccountApprovals[0].Revision != receipt.Revision {
 		t.Fatalf("paged exact receipt/account-action evidence was lost: %+v", ticket)
 	}

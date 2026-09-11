@@ -4,6 +4,9 @@
     <div><h2 id="tickets-title">Work</h2><p>{{if .Delivery.NeedsAttention}}{{.Delivery.NeedsAttention}} {{if eq .Delivery.NeedsAttention 1}}item needs{{else}}items need{{end}} your judgment.{{else}}No decisions waiting in the observed work.{{end}}</p></div>
     <span class="work-total">{{len .Delivery.Tickets}} observed</span>
   </div>
+  <div class="workbench-body">
+    <details id="observed-work" class="work-index ticket-evidence" {{if not .SelectedWork}}open{{end}}>
+      <summary><span class="disclosure-title">Choose observed work</span><span class="disclosure-meta">{{len .Delivery.Tickets}} in scope</span></summary>
   {{if .Delivery.Tickets}}
     <div class="work-controls" data-work-controls hidden>
       <div class="work-filters" role="group" aria-label="Filter work">
@@ -20,8 +23,6 @@
       </div>
     </div>
   {{end}}
-  <div class="workbench-body">
-    <div class="work-index">
       {{if .Delivery.Tickets}}
         <div class="work-columns" aria-hidden="true"><span>Work item</span><span>Current evidence</span><span>Execution</span><span>Provider cost</span></div>
         <ol id="work-list" class="work-list" data-preserve-scroll>
@@ -41,7 +42,7 @@
       {{else}}
         <div class="empty-state"><span class="empty-mark" aria-hidden="true">∅</span><h3>No work in this observation</h3><p>No work identities have been observed. A bounded inventory or exact Run provenance is required; Canopy does not guess from titles or branches.</p><a href="#diagnostics">Inspect runtime details</a></div>
       {{end}}
-    </div>
+    </details>
     {{if .SelectedWork}}
       {{if .SelectedTicket}}
         {{template "ticket-detail" .}}
@@ -69,7 +70,7 @@
 {{with .SelectedTicket}}
 <section id="work-evidence" class="work-detail" aria-labelledby="work-detail-title">
   <header class="work-detail-header">
-    <div class="detail-navigation"><span class="work-key">{{.Key}}</span><a class="close-work" data-work-navigation href="/?instance={{$instance}}" aria-label="Close work evidence">All work <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></a></div>
+    <div class="detail-navigation"><span class="work-key">{{.Key}}</span><a class="close-work" href="#observed-work" aria-label="Choose observed work">All work <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></a></div>
     <h2 id="work-detail-title">{{if .Title}}{{.Title}}{{else}}{{.Key}}{{end}}</h2>
     <div class="decision-line">{{template "work-stage-badge" .}}{{if and .ActionOwner (ne .ActionOwner "None")}}<span>With {{.ActionOwner}}</span>{{end}}</div>
     {{if .NextAction}}<p class="next-action">{{.NextAction}}</p>{{end}}
@@ -78,6 +79,19 @@
     <div><dt>Run execution</dt><dd>{{.Duration}}</dd><span>{{.RunCount}} {{if eq .RunCount 1}}Run{{else}}Runs{{end}}{{if .FailedRuns}}, {{.FailedRuns}} nonzero {{if eq .FailedRuns 1}}exit{{else}}exits{{end}}{{end}}</span></div>
     <div><dt>Provider subtotal</dt><dd>{{.USDCompact}}</dd><span class="coverage-label {{.Coverage}}">{{.Coverage}} coverage{{if ne .UsageFreshness "fresh"}}, {{.UsageFreshness}}{{end}}</span></div>
   </dl>
+  <section aria-labelledby="current-execution-title">
+    <h3 id="current-execution-title">Current execution</h3>
+    {{if not .CurrentKnown}}
+      <p class="reading-note">Current execution is unknown: status is stale or live-run observation failed.</p>
+    {{else if .CurrentRuns}}
+      {{range .CurrentRuns}}
+        <p><strong>{{.Agent}}</strong>: {{.Outcome}} <span class="mono">{{.ID}}</span></p>
+        <p class="reading-note">Request {{if .RequestID}}<span class="mono">{{.RequestID}}</span>{{else}}unknown{{end}}; elapsed {{.Duration}}. {{.ProcessOutcome}}</p>
+      {{end}}
+    {{else}}
+      <p class="reading-note">No live execution observed for this work. This does not establish success, rejection, or cancellation.</p>
+    {{end}}
+  </section>
   <section class="evidence-map" aria-labelledby="evidence-map-title">
     <div class="section-heading"><h3 id="evidence-map-title">The evidence trail</h3><span>Recorded independently</span></div>
     <ol class="evidence-trail">
@@ -108,6 +122,18 @@
               <div class="run-cost"><strong>{{.Duration}}</strong><span>{{.USD}}</span><span class="coverage-label {{.Coverage}}">{{.Coverage}}</span></div>
               <a class="log-link" href="/logs?instance={{$instance}}&amp;run={{.ID}}" hx-get="/logs?instance={{$instance}}&amp;run={{.ID}}" hx-target="#log-{{.ID}}" hx-swap="outerHTML">Read log<span class="visually-hidden"> {{.ID}}</span></a>
             </div>
+            {{if .Cancelled}}
+              <details id="recovery-{{.ID}}" class="ticket-evidence">
+                <summary><span class="disclosure-title">{{if .Recovery}}Worktree retained{{else}}Worktree retention unknown{{end}}</span></summary>
+                {{with .Recovery}}
+                  <dl class="detail-metrics">
+                    <div><dt>Recorded local path</dt><dd class="mono">{{if .Path}}{{.Path}}{{else}}unknown{{end}}</dd></div>
+                    <div><dt>Base revision, not candidate</dt><dd class="mono">{{if .BaseRevision}}{{.BaseRevision}}{{else}}unknown{{end}}</dd></div>
+                  </dl>
+                  <p class="reading-note">Historical observation of a native Git worktree, subject to manual disposal. Canopy does not read, serve, or restore its contents.</p>
+                {{else}}<p class="reading-note">No retained worktree was observed; this does not establish that the worktree was clean.</p>{{end}}
+              </details>
+            {{end}}
             <div id="log-{{.ID}}" class="log-output" hx-preserve="true"></div>
           </li>
         {{end}}

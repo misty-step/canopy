@@ -3,22 +3,24 @@
   {{if .ID}}
     <header class="instance-heading">
       <div><p class="instance-origin">{{if .Repo}}{{.Repo}}{{else}}{{.ID}}{{end}}{{if .Host}} <span>{{.Host}}</span>{{end}}</p><h1>{{if .Label}}{{.Label}}{{else}}{{.ID}}{{end}}</h1></div>
-      <div class="runtime-at-a-glance">
-        <span class="kernel-state">{{if .KernelKnown}}<span class="state-dot {{if .KernelRunning}}running{{else}}unknown{{end}}" aria-hidden="true"></span>Kernel {{if .KernelRunning}}running{{else}}stopped{{end}}{{else}}Kernel not observed{{end}}</span>
-        {{if ne .Freshness "unknown"}}<strong>{{.ActiveRuns}} <span>active {{if eq .ActiveRuns 1}}Run{{else}}Runs{{end}}</span></strong>{{else}}<span class="muted">Run activity unknown</span>{{end}}
-      </div>
     </header>
     <div class="observation-strip"><span class="status-badge {{.Freshness}}"><i aria-hidden="true"></i>Observation {{.Freshness}}</span>{{if .LastObserved}}<span>Last observed <time>{{.LastObserved}}</time></span>{{end}}</div>
     {{if .Errors}}
       <section class="collection-warning" aria-labelledby="instance-errors"><h2 id="instance-errors">Observation needs attention</h2><p>These sources could not be read successfully. Any retained evidence is labeled with its freshness.</p><ul class="error-list">{{range .Errors}}<li>{{.}}</li>{{end}}</ul></section>
     {{end}}
-    {{template "mandate.html" .}}
     {{if eq .Freshness "unknown"}}
       <section class="empty-state waiting-state" aria-labelledby="waiting-title"><span class="empty-mark" aria-hidden="true">…</span><h2 id="waiting-title">Waiting for first observation</h2><p>No successful snapshot is available yet. Canopy will keep trying without treating this instance as healthy.</p><p class="reading-note">No activity, delivery or cost can be established from a missing observation.</p></section>
     {{else}}
       {{template "tickets.html" .}}
       <details id="diagnostics" class="diagnostics">
         <summary><span class="disclosure-title">Runtime details</span><span class="disclosure-meta">{{.ActiveRuns}} active {{if eq .ActiveRuns 1}}Run{{else}}Runs{{end}} / Kernel {{if .KernelKnown}}{{if .KernelRunning}}running{{else}}stopped{{end}}{{else}}unknown{{end}}</span></summary>
+        {{template "mandate.html" .}}
+        <section aria-label="Stable detail freshness">
+          <dl class="source-health">
+            {{range .DetailSources}}<div><dt>{{.Name}}</dt><dd><span class="signal {{.State}}">{{.State}}</span><p>{{.Message}}</p>{{if .Observed}}<time>{{.Observed}}</time>{{end}}</dd></div>{{end}}
+          </dl>
+          <p class="reading-note">Optional details refresh separately. Current status never renews these observation times.</p>
+        </section>
         <div class="runtime-grid">
           <section class="runtime-section" aria-labelledby="overview-title">
             <div class="section-heading"><h2 id="overview-title">Instance</h2><span class="signal {{.Freshness}}">{{.Freshness}}</span></div>

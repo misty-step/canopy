@@ -53,18 +53,20 @@ func (e *CLIError) Error() string {
 	return fmt.Sprintf("forest %s failed (exit %d): %s", e.Command, e.Exit, e.Message)
 }
 
-// Snapshot is one complete, point-in-time projection of an instance. A
-// collection either supplies all fields or returns an error; callers retain
-// their previous successful snapshot when a later collection fails.
+// Snapshot is a read-only projection assembled from independently observed
+// status and optional sections. CollectedAt is only the status clock.
 type Snapshot struct {
-	Instance     Instance          `json:"instance"`
-	CollectedAt  time.Time         `json:"collected_at"`
-	Version      VersionData       `json:"version"`
-	Config       ConfigData        `json:"config"`
-	Status       StatusData        `json:"status"`
-	Declarations []DeclarationData `json:"declarations"`
-	History      RunHistory        `json:"history"`
-	Delivery     DeliverySources   `json:"delivery"`
+	Instance                Instance          `json:"instance"`
+	CollectedAt             time.Time         `json:"collected_at"`
+	Version                 VersionData       `json:"version"`
+	Config                  ConfigData        `json:"config"`
+	Status                  StatusData        `json:"status"`
+	Declarations            []DeclarationData `json:"declarations"`
+	History                 RunHistory        `json:"history"`
+	Delivery                DeliverySources   `json:"delivery"`
+	VersionObservation      SourceObservation `json:"version_observation"`
+	ConfigObservation       SourceObservation `json:"config_observation"`
+	DeclarationsObservation SourceObservation `json:"declarations_observation"`
 }
 
 // LogResult is the machine-readable result of `forest run logs --json`.
@@ -82,6 +84,7 @@ type LogResult struct {
 // instance.
 type Collector interface {
 	Collect(context.Context, Instance) (Snapshot, error)
+	CollectDetails(context.Context, Instance) Snapshot
 	Logs(context.Context, Instance, string, bool) (LogResult, error)
 }
 
@@ -205,6 +208,7 @@ type RunData struct {
 	Reasoning     int64           `json:"reasoning"`
 	Error         string          `json:"error,omitempty"`
 	DefinitionSHA string          `json:"definition_sha,omitempty"`
+	Recovery      *RecoveryData   `json:"recovery,omitempty"`
 }
 
 // CompletionData is a profile observation, independent of process exit.
@@ -227,6 +231,14 @@ type LiveRunData struct {
 	Outcome     string          `json:"outcome,omitempty"`
 	Completion  *CompletionData `json:"completion,omitempty"`
 	Cancel      string          `json:"cancel"`
+	Recovery    *RecoveryData   `json:"recovery,omitempty"`
+}
+
+// Recovery is a historical local observation, not proof that bytes still
+// exist and never a restore command or a candidate revision.
+type RecoveryData struct {
+	Path         string `json:"path"`
+	BaseRevision string `json:"base_revision,omitempty"`
 }
 
 // AgentLedgerData is the whole-Ledger aggregate for one historical agent. An

@@ -27,13 +27,13 @@ type ReadSource struct {
 
 type HabitatSource struct {
 	ReadSource
-	System string `json:"system"`
+	System      string   `json:"system"`
 	WorkItemIDs []string `json:"work_item_ids,omitempty"`
 }
 
 type ForgeSource struct {
 	ReadSource
-	WebURL string `json:"web_url"`
+	WebURL          string `json:"web_url"`
 	AutomationLogin string `json:"automation_login,omitempty"`
 }
 
@@ -111,7 +111,12 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 			return fmt.Errorf("forge.web_url must be a web origin")
 		}
 		if sources.Forge.AutomationLogin != "" {
-			if err := validateRouteIdentifier(sources.Forge.AutomationLogin, "forge automation login"); err != nil {
+			// GitHub App logins have a literal terminal [bot] suffix. Validate
+			// only a local view: keep the complete identity for receipt matching
+			// and the existing safety rules, without imposing user signup rules
+			// on App slugs. Any other brackets remain unsafe.
+			login := strings.TrimSuffix(sources.Forge.AutomationLogin, "[bot]")
+			if err := validateRouteIdentifier(login, "forge automation login"); err != nil {
 				return err
 			}
 		}
@@ -248,6 +253,10 @@ func (c *cliCollector) collectRunHistory(ctx context.Context, instance Instance)
 			return result
 		}
 		for _, run := range page.Runs {
+			if len(result.Runs) >= 100000 {
+				result.Error = "Run history exceeds the 100000-row observation limit"
+				return result
+			}
 			if run.RunID == "" {
 				result.Error = "Run history contains an unattributable row without a Run ID"
 				return result
@@ -543,10 +552,10 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 			MergedAt *time.Time `json:"merged_at"`
 			MergeSHA string     `json:"merge_commit_sha"`
 			HTMLURL  string     `json:"html_url"`
-			Head struct {
+			Head     struct {
 				SHA string `json:"sha"`
 			} `json:"head"`
-			Base     struct {
+			Base struct {
 				Ref  string `json:"ref"`
 				Repo struct {
 					FullName string `json:"full_name"`
@@ -628,7 +637,7 @@ func (reader sourceReader) reviewReceipts(ctx context.Context, endpoint, tokenEn
 			CreatedAt   time.Time `json:"created_at"`
 			UpdatedAt   time.Time `json:"updated_at"`
 			Association string    `json:"author_association"`
-			User struct {
+			User        struct {
 				ID    int64  `json:"id"`
 				Login string `json:"login"`
 				Type  string `json:"type"`

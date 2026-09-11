@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"html/template"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 type testCollector struct {
 	mu      sync.Mutex
 	collect func(context.Context, Instance) (Snapshot, error)
+	details func(context.Context, Instance) Snapshot
 	logs    func(context.Context, Instance, string, bool) (LogResult, error)
 	active  int
 	max     int
@@ -50,6 +53,16 @@ func (c *testCollector) Logs(ctx context.Context, instance Instance, runID strin
 		return LogResult{RunID: runID, Complete: true}, nil
 	}
 	return c.logs(ctx, instance, runID, follow)
+}
+
+func (c *testCollector) CollectDetails(ctx context.Context, instance Instance) Snapshot {
+	c.mu.Lock()
+	fn := c.details
+	c.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, instance)
+	}
+	return Snapshot{}
 }
 
 type blockingCollector struct {
@@ -92,6 +105,10 @@ func (c *blockingCollector) Logs(context.Context, Instance, string, bool) (LogRe
 	return LogResult{}, nil
 }
 
+func (c *blockingCollector) CollectDetails(context.Context, Instance) Snapshot {
+	return Snapshot{}
+}
+
 func (c *blockingCollector) maxFor(id string) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -113,7 +130,7 @@ func testInventory() Inventory {
 }
 
 func TestRefreshRetainsLastSuccessfulSnapshotOnFailure(t *testing.T) {
-	first := Snapshot{Instance: testInventory().Instances[0], Version: VersionData{BuildSHA: "abc"}}
+	first := Snapshot{Instance: testInventory().Instances[0], Status: StatusData{Repo: "org/repo"}}
 	collector := &testCollector{}
 	collector.collect = func(context.Context, Instance) (Snapshot, error) { return first, nil }
 	app := NewApp(testInventory(), collector, nil)
@@ -126,7 +143,7 @@ func TestRefreshRetainsLastSuccessfulSnapshotOnFailure(t *testing.T) {
 	collector.collect = func(context.Context, Instance) (Snapshot, error) { return Snapshot{}, errors.New("offline") }
 	app.refreshOnce(context.Background(), first.Instance)
 	after, _ := app.state("one")
-	if after.Snapshot == nil || after.Snapshot.Version.BuildSHA != "abc" {
+	if after.Snapshot == nil || after.Snapshot.Status.Repo != "org/repo" {
 		t.Fatalf("failure cleared snapshot: %+v", after.Snapshot)
 	}
 	if !after.LastSuccess.Equal(lastSuccess) {
@@ -271,5 +288,180 @@ func TestSyncDiscoveredInstancesPreservesExplicitInventory(t *testing.T) {
 	got = app.instances()
 	if len(got) != 1 || got[0].ID != "one" {
 		t.Fatalf("instances after empty sync=%+v, want only explicit instance one", got)
+	}
+}
+
+func awaitSignal(t *testing.T, signal <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("observation did not complete")
+	}
+}
+
+func TestSlowDetailsDoNotBlockStatusOrOverlap(t *testing.T) {
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	collector := &testCollector{details: func(ctx context.Context, _ Instance) Snapshot {
+		close(entered)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return Snapshot{Config: ConfigData{Repo: "detail-repo"}, ConfigObservation: SourceObservation{ObservedAt: time.Now()}}
+	}}
+	app := NewApp(testInventory(), collector, nil)
+	instance := testInventory().Instances[0]
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { app.refreshDetailsOnce(ctx, instance); close(done) }()
+	awaitSignal(t, entered)
+	// Direct repeated calls must coalesce, not invoke the blocked collector.
+	for range 5 {
+		app.refreshDetailsOnce(ctx, instance)
+	}
+	collector.collect = func(context.Context, Instance) (Snapshot, error) {
+		return Snapshot{Status: StatusData{LiveRuns: []LiveRunData{{RunID: "live", RequestID: "request"}}}}, nil
+	}
+	app.refreshOnce(ctx, instance)
+	live, _ := app.state(instance.ID)
+	if live.LastSuccess.IsZero() || len(live.Snapshot.Status.LiveRuns) != 1 {
+		t.Fatalf("blocked details held current status: %+v", live)
+	}
+	collector.collect = func(context.Context, Instance) (Snapshot, error) {
+		return Snapshot{Status: StatusData{Recent: []RunData{{RunID: "live", Outcome: "cancelled"}}}}, nil
+	}
+	app.refreshOnce(ctx, instance)
+	close(release)
+	awaitSignal(t, done)
+	after, _ := app.state(instance.ID)
+	if len(after.Snapshot.Status.LiveRuns) != 0 || len(after.Snapshot.Status.Recent) != 1 || after.Snapshot.Status.Recent[0].Outcome != "cancelled" {
+		t.Fatalf("detail publication overwrote advanced status: %+v", after.Snapshot)
+	}
+	if after.Snapshot.Config.Repo != "detail-repo" || after.Err != nil {
+		t.Fatalf("successful details were not independently published: %+v", after)
+	}
+}
+
+func TestDetailFailureRetainsOnlyItsOwnLastGoodObservation(t *testing.T) {
+	observed := time.Now().Add(-time.Second)
+	first := Snapshot{
+		Version: VersionData{BuildSHA: "old"}, VersionObservation: SourceObservation{ObservedAt: observed},
+		Config: ConfigData{Repo: "before"}, ConfigObservation: SourceObservation{ObservedAt: observed},
+		DeclarationsObservation: SourceObservation{Error: "unavailable"},
+	}
+	collector := &testCollector{details: func(context.Context, Instance) Snapshot { return first }}
+	app := NewApp(testInventory(), collector, nil)
+	instance := testInventory().Instances[0]
+	app.refreshDetailsOnce(context.Background(), instance)
+	before, _ := app.state(instance.ID)
+	if classifyFreshness(before, time.Now(), time.Minute) != Unknown {
+		t.Fatal("details claimed a first status success")
+	}
+	nextTime := time.Now()
+	collector.details = func(context.Context, Instance) Snapshot {
+		return Snapshot{VersionObservation: SourceObservation{Error: "version offline"},
+			Config: ConfigData{Repo: "after"}, ConfigObservation: SourceObservation{ObservedAt: nextTime},
+			DeclarationsObservation: SourceObservation{Error: "still unavailable"}}
+	}
+	app.refreshDetailsOnce(context.Background(), instance)
+	app.refreshOnce(context.Background(), instance)
+	after, _ := app.state(instance.ID)
+	if after.Snapshot.Version.BuildSHA != "old" || !after.Snapshot.VersionObservation.ObservedAt.Equal(observed) || after.Snapshot.Config.Repo != "after" {
+		t.Fatalf("independent last-good detail retention failed: %+v", after.Snapshot)
+	}
+	view := instanceView(instance, after, true, nextTime, time.Minute)
+	if view.Freshness != "fresh" || view.DetailSources[0].State != "stale" || view.DetailSources[1].State != "fresh" || view.DetailSources[2].State != "unknown" {
+		t.Fatalf("detail failure mislabeled another section: %+v", view.DetailSources)
+	}
+	aged := instanceView(instance, after, true, nextTime.Add(sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack), 10*time.Minute)
+	if aged.Freshness != "fresh" || aged.DetailSources[1].State != "stale" {
+		t.Fatal("status freshness renewed expired configuration")
+	}
+}
+
+func TestSlowExternalSourceCannotHoldOrOverwriteStatus(t *testing.T) {
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		select {
+		case <-release:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	inventory := testInventory()
+	inventory.Instances[0].Sources.Tach = &ReadSource{Endpoint: server.URL, TokenEnv: "READ_ONLY"}
+	collector := &testCollector{collect: func(context.Context, Instance) (Snapshot, error) {
+		return Snapshot{Status: StatusData{LiveRuns: []LiveRunData{{RunID: "initial"}}}}, nil
+	}}
+	app := NewApp(inventory, collector, nil)
+	app.reader = sourceReader{client: server.Client(), lookup: func(string) (string, bool) { return "test-read-only", true }}
+	instance := inventory.Instances[0]
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app.refreshOnce(ctx, instance)
+	go func() { app.refreshSourcesOnce(ctx, instance); close(done) }()
+	awaitSignal(t, entered)
+	collector.collect = func(context.Context, Instance) (Snapshot, error) {
+		return Snapshot{Status: StatusData{Repo: "advanced"}}, nil
+	}
+	app.refreshOnce(ctx, instance)
+	current, _ := app.state(instance.ID)
+	if current.Snapshot.Status.Repo != "advanced" || current.Err != nil {
+		t.Fatal("external source held current status")
+	}
+	close(release)
+	awaitSignal(t, done)
+	after, _ := app.state(instance.ID)
+	if after.Snapshot.Status.Repo != "advanced" || after.Snapshot.Delivery.Usage.Error == "" || !after.LastSuccess.Equal(current.LastSuccess) {
+		t.Fatalf("source result replaced or renewed status: %+v", after)
+	}
+}
+
+func TestRetiredInstanceCannotPublishIntoReplacement(t *testing.T) {
+	for _, lane := range []string{"status", "details"} {
+		t.Run(lane, func(t *testing.T) {
+			entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			collector := &testCollector{}
+			block := func() { close(entered); <-release }
+			if lane == "status" {
+				collector.collect = func(context.Context, Instance) (Snapshot, error) {
+					block()
+					return Snapshot{Status: StatusData{Repo: "retired"}}, nil
+				}
+			} else {
+				collector.details = func(context.Context, Instance) Snapshot {
+					block()
+					return Snapshot{Config: ConfigData{Repo: "retired"}, ConfigObservation: SourceObservation{ObservedAt: time.Now()}}
+				}
+			}
+			app := NewApp(testInventory(), collector, nil)
+			instance := testInventory().Instances[0]
+			go func() {
+				if lane == "status" {
+					app.refreshOnce(context.Background(), instance)
+				} else {
+					app.refreshDetailsOnce(context.Background(), instance)
+				}
+				close(done)
+			}()
+			awaitSignal(t, entered)
+			// Exercise reconciliation without launching another live collector.
+			cancelled, cancel := context.WithCancel(context.Background())
+			cancel()
+			app.mu.Lock()
+			app.discovered[instance.ID] = struct{}{}
+			app.mu.Unlock()
+			app.syncDiscoveredInstances(cancelled, nil)
+			app.syncDiscoveredInstances(cancelled, []Instance{instance})
+			close(release)
+			awaitSignal(t, done)
+			state, ok := app.state(instance.ID)
+			if !ok || state.Snapshot != nil || !state.LastSuccess.IsZero() {
+				t.Fatalf("retired %s result overwrote replacement: %+v", lane, state)
+			}
+		})
 	}
 }
