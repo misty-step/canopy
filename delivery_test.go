@@ -279,7 +279,7 @@ func reviewedFixture(decision string) Snapshot {
 	snapshot.Delivery.Habitat.Items[item.ID] = item
 	verdictAt := time.Date(2026, 9, 8, 10, 10, 20, 0, time.UTC)
 	identity := EvidenceIdentity{Name: "Forest Verifier", Email: "verifier@example.test", Time: verdictAt}
-	review := ReviewEvidence{RunID: "run-1", Work: snapshot.History.Runs[0].Work, Revision: revision,
+	review := ReviewEvidence{RunID: "run-1", VerifierRunID: "verify-1", Work: snapshot.History.Runs[0].Work, Revision: revision,
 		Branch: "forest/VE-1/candidate", Decision: decision, Summary: "Exact candidate inspected",
 		RequestRef: "refs/forest/v1/request/" + revision, ChecksRef: "refs/forest/v1/checks/" + revision, VerdictRef: "refs/forest/v1/verdict/" + revision,
 		RequestState: "readable", ChecksState: "readable", VerdictState: "readable",
@@ -297,13 +297,12 @@ func reviewedFixture(decision string) Snapshot {
 	return snapshot
 }
 
-func TestCurrentReviewRequiresExactKnownVerifierRunAndRevision(t *testing.T) {
+func TestCurrentReviewRejectsConflictingProvenanceAndWrongRevision(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		change func(*Snapshot, *PullEvidence)
 	}{
 		{"wrong role", func(snapshot *Snapshot, _ *PullEvidence) { snapshot.History.Runs[1].Agent = "builder" }},
-		{"unknown verifier run", func(snapshot *Snapshot, _ *PullEvidence) { snapshot.History.Runs = snapshot.History.Runs[:1] }},
 		{"no-work selection", func(snapshot *Snapshot, _ *PullEvidence) { snapshot.History.Runs[1].NoWork = true }},
 		{"wrong work", func(snapshot *Snapshot, _ *PullEvidence) {
 			snapshot.History.Runs[1].Work = &WorkRef{System: "https://habitat.example", ID: "ticket-b", Key: "VE-2"}
@@ -312,12 +311,6 @@ func TestCurrentReviewRequiresExactKnownVerifierRunAndRevision(t *testing.T) {
 			work := *snapshot.History.Runs[1].Work
 			work.System = "https://other-tracker.example"
 			snapshot.History.Runs[1].Work = &work
-		}},
-		{"verdict before run", func(snapshot *Snapshot, _ *PullEvidence) {
-			snapshot.Reviews.Reviews[0].VerdictCommit.Committer.Time = time.Date(2026, 9, 8, 10, 9, 59, 0, time.UTC)
-		}},
-		{"verdict after run", func(snapshot *Snapshot, _ *PullEvidence) {
-			snapshot.Reviews.Reviews[0].VerdictCommit.Committer.Time = time.Date(2026, 9, 8, 10, 11, 1, 0, time.UTC)
 		}},
 		{"conflicting run provenance", func(snapshot *Snapshot, _ *PullEvidence) {
 			run := snapshot.History.Runs[1]
@@ -337,10 +330,8 @@ func TestCurrentReviewRequiresExactKnownVerifierRunAndRevision(t *testing.T) {
 		{"unpublished verdict", func(snapshot *Snapshot, _ *PullEvidence) {
 			snapshot.Reviews.Reviews[0].VerdictCommit = nil
 		}},
-		{"ambiguous verifier runs", func(snapshot *Snapshot, _ *PullEvidence) {
-			other := snapshot.History.Runs[1]
-			other.RunID, other.RequestID = "verify-2", "independent-verification"
-			snapshot.History.Runs = append(snapshot.History.Runs, other)
+		{"binding names builder", func(snapshot *Snapshot, _ *PullEvidence) {
+			snapshot.Reviews.Reviews[0].VerifierRunID = "run-1"
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -360,12 +351,68 @@ func TestCurrentReviewRequiresExactKnownVerifierRunAndRevision(t *testing.T) {
 	}
 }
 
-func TestVerdictCannotBorrowVerifierRunAbsentFromImmutableEvidence(t *testing.T) {
+func TestVerdictBindingDoesNotRequireLedgerRowsOrTimeCorrelation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*Snapshot)
+	}{
+		{"no ledger row", func(snapshot *Snapshot) {
+			snapshot.Reviews.Reviews[0].Runs = nil
+			snapshot.History.Runs = snapshot.History.Runs[:1]
+		}},
+		{"overlapping verifier", func(snapshot *Snapshot) {
+			other := snapshot.History.Runs[1]
+			other.RunID = "verify-2"
+			snapshot.History.Runs = append(snapshot.History.Runs, other)
+			snapshot.Reviews.Reviews[0].Runs = snapshot.History.Runs
+		}},
+		{"unrelated clock", func(snapshot *Snapshot) {
+			snapshot.Reviews.Reviews[0].VerdictCommit.Committer.Time = time.Date(2026, 9, 8, 10, 15, 0, 0, time.UTC)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := reviewedFixture("approve")
+			test.change(&snapshot)
+			ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+			if ticket.Stage != "Verified, awaiting merge" || ticket.ReviewDecision != "approve" || ticket.ReviewRunID != "verify-1" || ticket.ReviewWarning != "" {
+				t.Fatalf("durable binding lost to optional Ledger correlation: %+v", ticket)
+			}
+		})
+	}
+}
+
+func TestLegacyVerdictRemainsUnboundDespiteMatchingVerifier(t *testing.T) {
 	snapshot := reviewedFixture("approve")
-	snapshot.Reviews.Reviews[0].Runs = nil
+	// Decode a legacy surface with the request Run but no verifier_run_id field.
+	raw, err := json.Marshal(snapshot.Reviews.Reviews[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	delete(fields, "verifier_run_id")
+	raw, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Reviews.Reviews[0] = ReviewEvidence{}
+	if err := json.Unmarshal(raw, &snapshot.Reviews.Reviews[0]); err != nil {
+		t.Fatal(err)
+	}
 	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
-	if ticket.Stage != "Awaiting verification" || ticket.ReviewDecision != "" || ticket.ReviewWarning == "" {
-		t.Fatalf("uncorrelated status/history Run supplied missing immutable verdict provenance: %+v", ticket)
+	if !strings.Contains(ticket.Stage, "unbound") || !strings.Contains(ticket.ReviewWarning, "unbound (legacy)") || ticket.ReviewRunID != "" || ticket.ReviewDecision != "approve" {
+		t.Fatalf("legacy publication was lost or implicitly bound: %+v", ticket)
+	}
+}
+
+func TestConflictingVerdictBindingDisplaysRejectedRunID(t *testing.T) {
+	snapshot := reviewedFixture("approve")
+	snapshot.Reviews.Reviews[0].VerifierRunID = "run-1"
+	ticket := ticketDeliveryView(snapshot, false, snapshot.History.ObservedAt, time.Minute).Tickets[0]
+	if ticket.Stage != "Awaiting verification" || ticket.ReviewRunID != "run-1" || !strings.Contains(ticket.ReviewWarning, "not a Forest Verifier") {
+		t.Fatalf("wrong bound identity was hidden or accepted: %+v", ticket)
 	}
 }
 

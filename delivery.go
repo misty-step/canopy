@@ -96,6 +96,7 @@ type ReviewEvidence struct {
 	Decision      string            `json:"decision"`
 	Summary       string            `json:"summary"`
 	RunID         string            `json:"run_id"`
+	VerifierRunID string            `json:"verifier_run_id"`
 	RequestRef    string            `json:"request_ref"`
 	ChecksRef     string            `json:"checks_ref"`
 	VerdictRef    string            `json:"verdict_ref"`
@@ -809,20 +810,18 @@ func selectReview(pull PullEvidence, snapshot Snapshot, work WorkRef, now time.T
 			selected.Warning = "Published verdict commit time is unavailable or in the future"
 			continue
 		}
-		matches := make(map[string]bool)
-		for _, run := range evidence.Runs {
-			if run.Agent == "verifier" && run.RunID != "" && run.Work != nil &&
-				run.Work.System == work.System && run.Work.ID == work.ID && !run.NoWork && run.Outcome != "no_work" &&
-				verdictRunWarning(*evidence, run.RunID, pull, snapshot, work, now) == "" {
-				matches[run.RunID] = true
-			}
-		}
-		if len(matches) != 1 {
-			selected.Warning = "Verdict commit time must fall inside exactly one known Verifier Run lifetime with exact work provenance"
+		selected.RunID = evidence.VerifierRunID
+		if strings.TrimSpace(selected.RunID) == "" {
+			selected.State, selected.Warning = "unbound", "Verdict published; verifier identity unbound (legacy)"
 			continue
 		}
-		for id := range matches {
-			selected.RunID = id
+		if warning := verdictRunWarning(*evidence, selected.RunID, snapshot, work); warning != "" {
+			selected.Warning = warning
+			continue
+		}
+		if pull.MergedAt != nil && at.After(*pull.MergedAt) {
+			selected.Warning = "Verdict was published after the observed merge"
+			continue
 		}
 		selected.State, selected.Warning = "current", ""
 	}
@@ -832,11 +831,10 @@ func selectReview(pull PullEvidence, snapshot Snapshot, work WorkRef, now time.T
 	return selected
 }
 
-func verdictRunWarning(evidence ReviewEvidence, runID string, pull PullEvidence, snapshot Snapshot, work WorkRef, now time.Time) string {
-	at := evidence.VerdictCommit.Committer.Time
-	known := false
-	var started, ended time.Time
-	check := func(id, agent, start string, identity *WorkRef, duration *float64, noWork bool) string {
+// The durable binding establishes identity even when Ledger rows are absent.
+// Observed rows may reject conflicting provenance, never supply a missing binding.
+func verdictRunWarning(evidence ReviewEvidence, runID string, snapshot Snapshot, work WorkRef) string {
+	check := func(id, agent string, identity *WorkRef, noWork bool) string {
 		if id != runID {
 			return ""
 		}
@@ -846,56 +844,27 @@ func verdictRunWarning(evidence ReviewEvidence, runID string, pull PullEvidence,
 		if identity != nil && (identity.System != work.System || identity.ID != work.ID || (work.Key != "" && identity.Key != "" && identity.Key != work.Key)) {
 			return "Verdict Run has conflicting immutable work provenance"
 		}
-		if start != "" {
-			value, err := time.Parse(time.RFC3339Nano, start)
-			if err != nil || (!started.IsZero() && !started.Equal(value)) {
-				return "Verdict Run start evidence is invalid or conflicting"
-			}
-			started = value
-			if duration != nil {
-				if *duration < 0 || math.IsNaN(*duration) || math.IsInf(*duration, 0) || *duration > 365*24*60*60 {
-					return "Verdict Run duration evidence is invalid"
-				}
-				end := value.Add(time.Duration(*duration * float64(time.Second)))
-				if !ended.IsZero() && !ended.Equal(end) {
-					return "Verdict Run lifetime evidence is conflicting"
-				}
-				ended = end
-			}
-		}
-		known = known || (agent == "verifier" && identity != nil && start != "")
 		return ""
 	}
 	for _, run := range evidence.Runs {
-		if warning := check(run.RunID, run.Agent, run.Started, run.Work, &run.Duration, run.NoWork || run.Outcome == "no_work"); warning != "" {
+		if warning := check(run.RunID, run.Agent, run.Work, run.NoWork || run.Outcome == "no_work"); warning != "" {
 			return warning
 		}
 	}
 	for _, run := range snapshot.History.Runs {
-		if warning := check(run.RunID, run.Agent, run.Started, run.Work, &run.Duration, run.NoWork || run.Outcome == "no_work"); warning != "" {
+		if warning := check(run.RunID, run.Agent, run.Work, run.NoWork || run.Outcome == "no_work"); warning != "" {
 			return warning
 		}
 	}
 	for _, run := range snapshot.Status.Recent {
-		if warning := check(run.RunID, run.Agent, run.Started, run.Work, &run.Duration, run.NoWork || run.Outcome == "no_work"); warning != "" {
+		if warning := check(run.RunID, run.Agent, run.Work, run.NoWork || run.Outcome == "no_work"); warning != "" {
 			return warning
 		}
 	}
 	for _, run := range snapshot.Status.LiveRuns {
-		if warning := check(run.RunID, run.Agent, run.StartedAt, run.Work, nil, run.Outcome == "no_work"); warning != "" {
+		if warning := check(run.RunID, run.Agent, run.Work, run.Outcome == "no_work"); warning != "" {
 			return warning
 		}
-	}
-	if !known || started.IsZero() || ended.IsZero() {
-		return "Verdict does not identify a completed Forest Verifier Run with exact work provenance"
-	}
-	// Git commit clocks have second precision; accept their containing second,
-	// not an arbitrary grace period outside the observed execution.
-	if at.Before(started.Truncate(time.Second)) || !at.Before(ended.Truncate(time.Second).Add(time.Second)) {
-		return "Verdict was published outside the known Verifier Run lifetime"
-	}
-	if pull.MergedAt != nil && at.After(*pull.MergedAt) {
-		return "Verdict was published after the observed merge"
 	}
 	return ""
 }
@@ -958,7 +927,7 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		view.ApprovalFreshness = evidenceSourceView("", true, pull.ApprovalSource, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State
 		if evidence := review.Evidence; evidence != nil {
 			view.ReviewSHA, view.ReviewRunID, view.ReviewSummary = evidence.Revision, review.RunID, evidence.Summary
-			if review.State == "current" {
+			if review.State == "current" || review.State == "unbound" {
 				view.ReviewDecision = evidence.Decision
 			}
 			if evidence.VerdictCommit != nil {
@@ -1032,6 +1001,8 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 					} else {
 						setStage("Changes requested", "warn", "Fixer", "Address the published findings; tracker state is unknown", true)
 					}
+				} else if reviewFresh && review.State == "unbound" {
+					setStage("Verdict published; verifier identity unbound (legacy)", "warn", "Operator", "Obtain a newly published verdict with an explicit Verifier Run binding; historical correlation is not verification", true)
 				}
 			} else if view.Delivered {
 				setStage("Merged; reconciliation required", "warn", "Operator", "Merge is observed; tracker state and completion still require reconciliation", true)
@@ -1112,6 +1083,8 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		} else {
 			setStage("Verified, awaiting merge", "ok", "", "Exact-revision approval is recorded; merge has not been observed", false)
 		}
+	case "unbound":
+		setStage("Verdict published; verifier identity unbound (legacy)", "warn", "Operator", "Obtain a newly published verdict with an explicit Verifier Run binding; historical correlation is not verification", true)
 	default:
 		setStage("Awaiting verification", "warn", "Verifier", "Verify the current head and publish its immutable verdict ref", false)
 		if review.State == "invalid" {
