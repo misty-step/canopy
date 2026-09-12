@@ -137,6 +137,8 @@ Local discovery recognizes only `.iron-forest/config.yaml` plus an executable `.
 
 Each instance can add `sources`. Omitting an entry disables that external source explicitly; the UI says unavailable/unknown, not zero. Inventory accepts endpoint URLs and credential **environment-variable names**, never secret values. Every configured credential is required independently: there is no fallback to Habitat write, observer, forge or worker credentials. Provider cost needs no credential at all, because it arrives inside the Run records Forest already returns.
 
+Use the following object as an instance's `sources` value:
+
 ```json
 {
   "habitat": {
@@ -148,8 +150,7 @@ Each instance can add `sources`. Omitting an entry disables that external source
   "forge": {
     "endpoint": "https://api.github.com",
     "web_url": "https://github.com",
-    "token_env": "GITHUB_READ_TOKEN",
-    "automation_login": "repository-worker"
+    "token_env": "GITHUB_READ_TOKEN"
   }
 }
 ```
