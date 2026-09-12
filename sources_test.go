@@ -150,6 +150,9 @@ func TestObserverPagedHistoryIncludesOlderFailedWork(t *testing.T) {
 	defer server.Close()
 	instance := Instance{ID: "vector", Label: "Vector", Root: "/data/vector", Forest: "/data/vector/.iron-forest/bin/forest", ObserverURL: server.URL, ObserverTokenEnv: "OBSERVER_READ"}
 	snapshot := NewCLICollector(refreshTimeout).CollectDetails(context.Background(), instance)
+	if snapshot.Reviews.Error != "" || snapshot.Reviews.ObservedAt.IsZero() || snapshot.Reviews.Reviews == nil {
+		t.Fatalf("observer lost the independent published-review read: %+v", snapshot.Reviews)
+	}
 	view := ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
 	if snapshot.History.Error != "" || view.RunCount != 2 || view.FailedRuns != 1 || view.Duration != "1m 0s" || view.Started != "2026-09-08 09:00:00Z" {
 		t.Fatalf("status tail hid older failed work from HTTP observation: %+v; history=%+v", view, snapshot.History)

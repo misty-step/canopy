@@ -33,8 +33,7 @@ type HabitatSource struct {
 
 type ForgeSource struct {
 	ReadSource
-	WebURL          string `json:"web_url"`
-	AutomationLogin string `json:"automation_login,omitempty"`
+	WebURL string `json:"web_url"`
 }
 
 type TicketSources struct {
@@ -103,16 +102,6 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 		web, _ := url.Parse(sources.Forge.WebURL)
 		if strings.Trim(web.Path, "/") != "" {
 			return fmt.Errorf("forge.web_url must be a web origin")
-		}
-		if sources.Forge.AutomationLogin != "" {
-			// GitHub App logins have a literal terminal [bot] suffix. Validate
-			// only a local view: keep the complete identity for receipt matching
-			// and the existing safety rules, without imposing user signup rules
-			// on App slugs. Any other brackets remain unsafe.
-			login := strings.TrimSuffix(sources.Forge.AutomationLogin, "[bot]")
-			if err := validateRouteIdentifier(login, "forge automation login"); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
