@@ -33,8 +33,17 @@ type HabitatSource struct {
 
 type ForgeSource struct {
 	ReadSource
-	WebURL          string `json:"web_url"`
-	AutomationLogin string `json:"automation_login,omitempty"`
+	WebURL          string           `json:"web_url"`
+	AutomationLogin string           `json:"automation_login,omitempty"`
+	Candidates      []ForgeCandidate `json:"candidates,omitempty"`
+}
+
+// ForgeCandidate is explicit operator scope, not review or tracker evidence.
+type ForgeCandidate struct {
+	URL      string  `json:"url"`
+	Work     WorkRef `json:"work"`
+	Branch   string  `json:"branch"`
+	Revision string  `json:"revision"`
 }
 
 type TicketSources struct {
@@ -103,6 +112,15 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 		web, _ := url.Parse(sources.Forge.WebURL)
 		if strings.Trim(web.Path, "/") != "" {
 			return fmt.Errorf("forge.web_url must be a web origin")
+		}
+		for _, candidate := range sources.Forge.Candidates {
+			if candidate.Work.System == "" || candidate.Work.ID == "" || candidate.Branch == "" || !revisionSHA.MatchString(candidate.Revision) {
+				return fmt.Errorf("forge candidate requires immutable work identity, branch and exact revision")
+			}
+			pr, err := url.Parse(candidate.URL)
+			if err != nil || pr.Scheme != web.Scheme || pr.Host != web.Host || pr.User != nil || pr.RawQuery != "" || pr.Fragment != "" {
+				return fmt.Errorf("forge candidate URL must belong to the configured web origin")
+			}
 		}
 		if sources.Forge.AutomationLogin != "" {
 			// GitHub App logins have a literal terminal [bot] suffix. Validate
@@ -460,6 +478,9 @@ func forgePullPath(source ForgeSource, repo, prURL string) (string, bool) {
 func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config ConfigData, habitat HabitatObservation, previous ForgeObservation) ForgeObservation {
 	result := ForgeObservation{Pulls: make(map[string]PullEvidence)}
 	urls := make(map[string]bool)
+	for _, candidate := range source.Candidates {
+		urls[candidate.URL] = true
+	}
 	for _, item := range habitat.Items {
 		for _, prURL := range item.PRURLs {
 			urls[prURL] = true
@@ -493,6 +514,7 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 			HTMLURL  string     `json:"html_url"`
 			Head     struct {
 				SHA string `json:"sha"`
+				Ref string `json:"ref"`
 			} `json:"head"`
 			Base struct {
 				Ref  string `json:"ref"`
@@ -516,6 +538,7 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 			evidence.State = response.State
 			evidence.BaseRef = response.Base.Ref
 			evidence.HeadSHA = response.Head.SHA
+			evidence.HeadRef = response.Head.Ref
 			evidence.Merged = *response.Merged
 			evidence.MergedAt = response.MergedAt
 			evidence.SHA = response.MergeSHA

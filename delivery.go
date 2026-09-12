@@ -59,6 +59,7 @@ type PullEvidence struct {
 	State           string            `json:"state"`
 	BaseRef         string            `json:"base_ref"`
 	HeadSHA         string            `json:"head_sha"`
+	HeadRef         string            `json:"head_ref"`
 	Merged          bool              `json:"merged"`
 	MergedAt        *time.Time        `json:"merged_at"`
 	SHA             string            `json:"sha"`
@@ -283,6 +284,7 @@ type TicketView struct {
 	ReviewDecision, ReviewSHA, ReviewRunID, ReviewURL, ReviewSummary, ReviewWarning string
 	ReviewAuthor, ReviewAuthorType, ReviewAuthorAssociation                         string
 	CurrentPRURL, HeadSHA, USDCompact, MergerType                                   string
+	PRState, HeadRef                                                                string
 	AccountApprovals                                                                []ForgeApproval
 	ApprovalFreshness                                                               string
 	NeedsAttention                                                                  bool
@@ -482,6 +484,34 @@ func projectTicket(aggregate ticketAggregate, snapshot Snapshot, parentStale boo
 		}
 		if item.HistoryWarning != "" {
 			view.Notes = append(view.Notes, item.HistoryWarning)
+		}
+	}
+	// Inventory associates exact candidates with already observed native work.
+	// It cannot manufacture a Run, a tracker state, or a valid review receipt.
+	if source := snapshot.Instance.Sources.Forge; source != nil {
+		var current []string
+		if len(source.Candidates) > 0 {
+			item.PRURLs = append([]string(nil), item.PRURLs...)
+		}
+		for _, candidate := range source.Candidates {
+			if candidate.Work.System != aggregate.Work.System || candidate.Work.ID != aggregate.Work.ID {
+				continue
+			}
+			pull, exists := snapshot.Delivery.Forge.Pulls[candidate.URL]
+			if !exists || pull.ObservedAt.IsZero() {
+				continue
+			}
+			if pull.HeadSHA != candidate.Revision || pull.HeadRef != candidate.Branch {
+				view.Notes = append(view.Notes, "Configured candidate no longer matches the observed PR head: "+candidate.URL)
+				continue
+			}
+			item.PRURLs = append(item.PRURLs, candidate.URL)
+			current = append(current, candidate.URL)
+		}
+		if item.PRURL == "" && len(current) == 1 {
+			item.PRURL = current[0]
+		} else if item.PRURL == "" && len(current) > 1 {
+			view.Notes = append(view.Notes, "Multiple configured candidates match this work; current PR is ambiguous")
 		}
 	}
 	var firstStart *time.Time
@@ -857,8 +887,11 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 	reviewFresh := false
 	if found {
 		view.HeadSHA = pull.HeadSHA
+		view.PRState, view.HeadRef = pull.State, pull.HeadRef
 		work := aggregate.Work
-		work.Key = item.Key
+		if item.Key != "" {
+			work.Key = item.Key
+		}
 		review = selectReview(pull, snapshot, work, now)
 		reviewFresh = evidenceSourceView("", true, pull.ReviewSource, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State == "fresh"
 		view.AccountApprovals = pull.Approvals
@@ -919,6 +952,13 @@ func projectCurrentStage(view *TicketView, aggregate ticketAggregate, snapshot S
 		return
 	}
 	if !historyFresh || view.TrackerFreshness != "fresh" {
+		if snapshot.Instance.Sources.Habitat == nil && historyFresh && found && evidenceSourceView("", true, pull.SourceObservation, parentStale, now, sourceRefreshInterval+refreshTimeout+freshnessSchedulingSlack, "").State == "fresh" {
+			if pull.State == "open" {
+				setStage("Open PR; tracker unknown", "warn", "Operator", "Inspect the exact candidate and review evidence; tracker state is unavailable", true)
+			} else if view.Delivered {
+				setStage("Merged; reconciliation required", "warn", "Operator", "Merge is observed; tracker state and completion still require reconciliation", true)
+			}
+		}
 		return
 	}
 	for _, observation := range []SourceObservation{snapshot.ConfigObservation, snapshot.DeclarationsObservation} {

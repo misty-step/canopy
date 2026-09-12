@@ -331,3 +331,75 @@ func TestPaginatedReviewReceiptsRetainSourceFreshnessIndependentlyOfNewHead(t *t
 		t.Fatalf("successful stale-revision observation was conflated with source failure: %+v", ticket)
 	}
 }
+
+func TestConfiguredForgeCandidateRequiresExactHeadAndWork(t *testing.T) {
+	const prURL = "https://github.com/org/repo/pull/2"
+	revision, branch := strings.Repeat("a", 40), "forest/VE-1/candidate"
+	var changedHead atomic.Bool
+	var merged atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/org/repo/pulls/2":
+			head := revision
+			if changedHead.Load() {
+				head = strings.Repeat("b", 40)
+			}
+			state := "open"
+			var mergedAt *time.Time
+			if merged.Load() {
+				state = "closed"
+				mergedAt = new(time.Now().UTC())
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"merged": merged.Load(), "state": state, "html_url": prURL,
+				"merged_at": mergedAt, "merge_commit_sha": "merge-sha",
+				"head": map[string]string{"sha": head, "ref": branch},
+				"base": map[string]any{"ref": "main", "repo": map[string]string{"full_name": "org/repo"}},
+			})
+		case "/repos/org/repo/issues/2/comments", "/repos/org/repo/pulls/2/reviews":
+			fmt.Fprint(w, `[]`)
+		default:
+			t.Errorf("query escaped explicit candidate scope: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	snapshot := onlyServedFixture()
+	snapshot.Instance.Sources.Habitat = nil
+	snapshot.Delivery = DeliverySources{}
+	snapshot.History.ObservedAt = time.Now().UTC()
+	snapshot.Instance.Sources.Forge = &ForgeSource{
+		ReadSource: ReadSource{Endpoint: server.URL, TokenEnv: "READ"}, WebURL: "https://github.com",
+		Candidates: []ForgeCandidate{{URL: prURL, Work: *snapshot.History.Runs[0].Work, Branch: branch, Revision: revision}},
+	}
+	reader := newSourceReader()
+	reader.lookup = func(string) (string, bool) { return "read-only", true }
+	project := func() TicketView {
+		snapshot.Delivery = reader.collect(context.Background(), snapshot, snapshot.Delivery)
+		return ticketDeliveryView(snapshot, false, time.Now(), time.Minute).Tickets[0]
+	}
+	view := project()
+	if view.CurrentPRURL != prURL || view.HeadSHA != revision || view.HeadRef != branch || view.PRState != "open" || view.Tracker != "Unknown" || view.ReviewDecision != "" || view.Delivered {
+		t.Fatalf("explicit candidate lost or promoted to review/tracker evidence: %+v", view)
+	}
+	changedHead.Store(true)
+	if view = project(); view.CurrentPRURL != "" || view.HeadSHA != "" || len(view.Notes) == 0 {
+		t.Fatalf("moved head retained exact candidate association: %+v", view)
+	}
+	changedHead.Store(false)
+	candidate := &snapshot.Instance.Sources.Forge.Candidates[0]
+	candidate.Branch = "different-branch"
+	if view = project(); view.CurrentPRURL != "" {
+		t.Fatalf("wrong branch was accepted: %+v", view)
+	}
+	candidate.Branch = branch
+	candidate.Work.System = "https://other-tracker.example"
+	if view = project(); view.CurrentPRURL != "" {
+		t.Fatalf("same ID in another work system was joined: %+v", view)
+	}
+	candidate.Work = *snapshot.History.Runs[0].Work
+	merged.Store(true)
+	if view = project(); !view.Delivered || view.MergeSHA != "merge-sha" || view.Stage == "Complete" || view.Latency != "Unknown" {
+		t.Fatalf("merge disappeared or claimed tracker completion/first delivery: %+v", view)
+	}
+}

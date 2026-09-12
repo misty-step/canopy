@@ -163,7 +163,20 @@ of Run history. These identities appear before their first Run, with unknown
 usage rather than zero cost. An omitted list retains Run-derived discovery;
 Canopy does not enumerate a whole module or infer authorization from its contents.
 
-Forge credentials need read access to the declared repository's pull requests and receipt comments. Only explicit current/historical `pr_url` values on the configured forge and Forest repository are queried. A merge must have its own timestamp/SHA and target the declared primary. `Merged` counts that observation, not an inferred human act. A GitHub `User` account is not by itself proof of human intent or protected merge authority.
+Forge credentials need read access to the declared repository's pull requests and receipt comments. Only explicit current/historical Habitat `pr_url` values and configured `forge.candidates` URLs on the configured forge and Forest repository are queried. A merge must have its own timestamp/SHA and target the declared primary. `Merged` counts that observation, not an inferred human act. A GitHub `User` account is not by itself proof of human intent or protected merge authority.
+
+Without Habitat, an instance may declare bounded exact candidates under `forge.candidates`:
+
+```json
+{
+  "url": "https://github.com/org/repo/pull/42",
+  "work": {"system": "https://linear.app/team", "id": "immutable-work-id"},
+  "branch": "forest/WORK-42/candidate",
+  "revision": "0123456789abcdef0123456789abcdef01234567"
+}
+```
+
+Each array entry is operator-supplied scope, not review evidence or admission authority. Canopy joins it only to an already observed native work identity with the exact same system and immutable ID, and only when GitHub reports the configured branch and revision. A moved head invalidates the association until the inventory is updated; multiple matching candidates leave the current PR ambiguous. No branch/title inference or repository-wide PR search is performed. Open/closed state and subsequent primary merges are independently observable, but tracker state and lifetime first-delivery timing remain unknown without a tracker source. A prose “approve” in a PR body is not a `forest.review.v1` receipt; the page continues to say review not established.
 
 Set `automation_login` to the dedicated principal expected to publish review receipts. It qualifies author trust; it does not invalidate historical receipts from other accountable accounts. A usable `forest.review.v1` receipt requires a positive account ID, a `User` or `Bot` author with `OWNER`, `MEMBER` or `COLLABORATOR` repository association, the exact current candidate, matching immutable work provenance, a known Verifier Run, its lifetime window and a canonical comment URL. Request IDs are opaque; no profile-specific naming convention is required.
 
