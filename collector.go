@@ -199,6 +199,19 @@ func (c *cliCollector) CollectDetails(ctx context.Context, instance Instance) Sn
 	historyCtx, historyCancel := context.WithTimeout(ctx, 10*time.Second)
 	snapshot.History = c.collectRunHistory(historyCtx, instance)
 	historyCancel()
+	snapshot.Reviews.SourceObservation = observeDetail(ctx, 15*time.Second, func(ctx context.Context) error {
+		raw, err := c.runJSON(ctx, instance, "review list", []string{"review", "list"})
+		if err != nil {
+			return err
+		}
+		if err := decodeCommandData(raw, "review list", &snapshot.Reviews); err != nil {
+			return err
+		}
+		if snapshot.Reviews.Reviews == nil {
+			return commandDataError("review list", "review collection is missing")
+		}
+		return nil
+	})
 	return snapshot
 }
 

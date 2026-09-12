@@ -97,7 +97,7 @@
     <ol class="evidence-trail">
       <li class="evidence-step {{if and .Tracker (ne .Tracker "unknown")}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Request</span><strong>{{.Tracker}}</strong><span class="source-state {{.TrackerFreshness}}">{{.TrackerFreshness}}</span>{{if .URL}}<a href="{{.URL}}" rel="noreferrer">Open request</a>{{end}}</li>
       <li class="evidence-step {{if .HeadSHA}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Candidate</span>{{if .HeadSHA}}<strong class="mono" title="{{.HeadSHA}}">{{printf "%.10s" .HeadSHA}}</strong>{{if .PRState}}<span>PR {{.PRState}}</span>{{end}}{{if .HeadRef}}<span class="mono">{{.HeadRef}}</span>{{end}}{{else}}<strong class="unobserved">Not observed</strong>{{end}}{{if .CurrentPRURL}}<a href="{{.CurrentPRURL}}" rel="noreferrer">Open PR</a><a href="{{.CurrentPRURL}}/files" rel="noreferrer">Inspect diff</a>{{end}}</li>
-      <li class="evidence-step {{if .ReviewDecision}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Review</span>{{if .ReviewDecision}}<strong>{{.ReviewDecision}}</strong><span class="mono" title="{{.ReviewSHA}}">{{printf "%.10s" .ReviewSHA}}</span>{{else}}<strong class="unobserved">Not established</strong>{{end}}{{if .ReviewURL}}<a href="{{.ReviewURL}}" rel="noreferrer">Read receipt</a>{{end}}</li>
+      <li class="evidence-step {{if .ReviewDecision}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Review</span>{{if .ReviewDecision}}<strong>{{.ReviewDecision}}</strong><span class="mono" title="{{.ReviewSHA}}">{{printf "%.10s" .ReviewSHA}}</span>{{else}}<strong class="unobserved">Not established</strong>{{end}}{{if .ReviewURL}}<a href="{{.ReviewURL}}" rel="noreferrer">Read verdict commit</a>{{end}}</li>
       <li class="evidence-step {{if .MergeSHA}}observed{{end}}"><span class="evidence-node" aria-hidden="true"></span><span class="evidence-label">Observed merge</span>{{if .MergeSHA}}<strong class="mono" title="{{.MergeSHA}}">{{printf "%.10s" .MergeSHA}}</strong><span>{{.Merger}}</span><time>{{.MergeTime}}</time>{{else}}<strong class="unobserved">No merge observed</strong>{{end}}</li>
     </ol>
   </section>
@@ -105,7 +105,7 @@
   {{if .ReviewSummary}}
     <details id="review-evidence" class="ticket-evidence review-evidence" data-work-system="{{.System}}" data-work-id="{{.ID}}" open>
       <summary><span class="disclosure-title">Review findings</span><span class="disclosure-meta">{{.ReviewDecision}}</span></summary>
-      <p class="receipt-byline">Receipt by {{.ReviewAuthor}}{{if .ReviewSHA}} for <span class="mono" title="{{.ReviewSHA}}">{{printf "%.12s" .ReviewSHA}}</span>{{end}}</p>
+      <p class="receipt-byline">Published verdict by {{.ReviewAuthor}}{{if .ReviewSHA}} for <span class="mono" title="{{.ReviewSHA}}">{{printf "%.12s" .ReviewSHA}}</span>{{end}}</p>
       <div id="review-summary" class="review-summary" data-preserve-scroll="{{.ReviewSHA}}" tabindex="0" role="region" aria-label="Review findings and verification evidence">{{.ReviewSummary}}</div>
       {{if .ReviewRunID}}<a class="receipt-run-link" href="/logs?instance={{$instance}}&amp;run={{.ReviewRunID}}">Read the Verifier Run <span class="mono">{{.ReviewRunID}}</span></a>{{end}}
     </details>

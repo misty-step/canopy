@@ -223,6 +223,7 @@ func (a *App) refreshDetailsOnce(parent context.Context, instance Instance) {
 		next.History.Error = "Run history has not been observed"
 	}
 	snapshot.History = retainRunHistory(next.History, snapshot.History)
+	retainDetail(&snapshot.Reviews.Reviews, &snapshot.Reviews.SourceObservation, next.Reviews.Reviews, next.Reviews.SourceObservation)
 	state.Snapshot = &snapshot
 }
 

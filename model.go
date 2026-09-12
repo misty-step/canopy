@@ -65,6 +65,7 @@ type Snapshot struct {
 	Status                  StatusData        `json:"status"`
 	Declarations            []DeclarationData `json:"declarations"`
 	History                 RunHistory        `json:"history"`
+	Reviews                 ReviewObservation `json:"reviews"`
 	Delivery                DeliverySources   `json:"delivery"`
 	VersionObservation      SourceObservation `json:"version_observation"`
 	ConfigObservation       SourceObservation `json:"config_observation"`

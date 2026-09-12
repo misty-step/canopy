@@ -33,8 +33,8 @@ They survive reload and refresh without widening a source query. An unknown work
 identity remains unknown; a URL is not permission to fetch or execute it.
 Fleet and work disclosures retain their state independently. Keyboard focus,
 search caret, page position and declared scroll regions survive replacement.
-Long review receipts retain their reading position for the same reviewed
-revision and start at the top for a new revision. Selected receipt text is
+Long review evidence retains its reading position for the same reviewed
+revision and starts at the top for a new revision. Selected review text is
 restored only when both the revision and exact text are unchanged. The evidence
 itself is refreshed, not frozen.
 
@@ -163,22 +163,13 @@ of Run history. These identities appear before their first Run, with unknown
 usage rather than zero cost. An omitted list retains Run-derived discovery;
 Canopy does not enumerate a whole module or infer authorization from its contents.
 
-Forge credentials need read access to the declared repository's pull requests and receipt comments. Only explicit current/historical Habitat `pr_url` values and configured `forge.candidates` URLs on the configured forge and Forest repository are queried. A merge must have its own timestamp/SHA and target the declared primary. `Merged` counts that observation, not an inferred human act. A GitHub `User` account is not by itself proof of human intent or protected merge authority.
+Forge credentials need read access to the declared repository's pull requests. Only explicit current/historical Habitat `pr_url` values on the configured forge and Forest repository are queried. A merge must have its own timestamp/SHA and target the declared primary. `Merged` counts that observation, not an inferred human act. A GitHub `User` account is not by itself proof of human intent or protected merge authority.
 
-Without Habitat, an instance may declare bounded exact candidates under `forge.candidates`:
+Review is not pinned in inventory. Canopy collects `forest review list --json` through the same `forest.cli.v2` inspect path used for other details (locally, over SSH, or the private observer) and joins each published row to already observed work by exact revision. Inventory has no `forge.candidates` array and no per-ticket branch, SHA, or URL override. Canopy never infers a candidate from a pull-request title, a `forest/` branch-name prefix, or a repository-wide PR search.
 
-```json
-{
-  "url": "https://github.com/org/repo/pull/42",
-  "work": {"system": "https://linear.app/team", "id": "immutable-work-id"},
-  "branch": "forest/WORK-42/candidate",
-  "revision": "0123456789abcdef0123456789abcdef01234567"
-}
-```
+A current review requires the listed revision to equal the observed head, a published verdict commit, Run-linked work identity matching that item, and a verdict-commit time inside the known Verifier Run lifetime. A changed head makes the previous join stale until the new revision publishes its own refs. Unreadable request, checks, or verdict refs fail closed and do not establish review. Optional GitHub comments are display sugar only; a prose “approve” in a PR body or comment is not a Forest verdict.
 
-Each array entry is operator-supplied scope, not review evidence or admission authority. Canopy joins it only to an already observed native work identity with the exact same system and immutable ID, and only when GitHub reports the configured branch and revision. A moved head invalidates the association until the inventory is updated; multiple matching candidates leave the current PR ambiguous. No branch/title inference or repository-wide PR search is performed. Open/closed state and subsequent primary merges are independently observable, but tracker state and lifetime first-delivery timing remain unknown without a tracker source. A prose “approve” in a PR body is not a `forest.review.v1` receipt; the page continues to say review not established.
-
-Set `automation_login` to the dedicated principal expected to publish review receipts. It qualifies author trust; it does not invalidate historical receipts from other accountable accounts. A usable `forest.review.v1` receipt requires a positive account ID, a `User` or `Bot` author with `OWNER`, `MEMBER` or `COLLABORATOR` repository association, the exact current candidate, matching immutable work provenance, a known Verifier Run, its lifetime window and a canonical comment URL. Request IDs are opaque; no profile-specific naming convention is required.
+Set `automation_login` to the dedicated principal expected to publish optional comment sugar. It qualifies comment-author trust; it does not admit or suppress published review refs. Request IDs are opaque; no profile-specific naming convention is required.
 
 Use the exact GitHub user login (for example, `repository-worker`) or GitHub App
 bot login (for example, `iron-forest[bot]`); keep the literal `[bot]` suffix.
@@ -189,9 +180,9 @@ to reproduce GitHub's account or App registration policies. This exception is
 only for `forge.automation_login`; instance, work-item and Run route identifiers
 still reject brackets.
 
-A different accountable author or an unconfigured `automation_login` produces a named caveat without suppressing an otherwise valid review or completed delivery. Freshly observed missing, invalid or ambiguous receipts leave an open candidate `Awaiting verification` with the specific reason; unavailable or stale sources read `Evidence unavailable`. Review, current tracker state and historical delivery are separate; reopening work does not erase earlier observed merges or costs. Neither an author match nor a GitHub `User` merger proves credential isolation or human intent. Host/forge policy, not Canopy, enforces separation between worker and human authority.
+A different accountable comment author or an unconfigured `automation_login` produces a named caveat without suppressing an otherwise valid published review or completed delivery. Freshly observed missing, invalid or unreadable reviews leave an open candidate `Awaiting verification` with the specific reason; unavailable or stale sources read `Evidence unavailable`. Review, current tracker state and historical delivery are separate; reopening work does not erase earlier observed merges or costs. Neither a comment author match nor a GitHub `User` merger proves credential isolation or human intent. Host/forge policy, not Canopy, enforces separation between worker and human authority.
 
-When a separately scoped forge credential is unavailable, the R90 worker's authenticated observer can provide the narrow GitHub metadata read capability instead. Set `forge.endpoint` to the **same origin as `observer_url`** with path `/v1/github`, retain `web_url: https://github.com`, and use the same `FOREST_OBSERVATION_TOKEN` environment-variable name. The observer permits bounded GET metadata for the declared repository: `pulls/<id>`, paginated `pulls/<id>/reviews`, and paginated `issues/<id>/comments`. It projects required receipt/identity fields, constructs its own upstream HTTPS requests, strips incoming headers and bodies, and refuses redirects. Its worker GitHub credential never enters Canopy. A private HTTP forge source with another origin, path or credential name is rejected.
+When a separately scoped forge credential is unavailable, the R90 worker's authenticated observer can provide the narrow GitHub metadata read capability instead. Set `forge.endpoint` to the **same origin as `observer_url`** with path `/v1/github`, retain `web_url: https://github.com`, and use the same `FOREST_OBSERVATION_TOKEN` environment-variable name. The observer permits bounded GET metadata for the declared repository: `pulls/<id>`, paginated `pulls/<id>/reviews`, and paginated `issues/<id>/comments`. It projects required pull/identity fields; comments are optional sugar, not the review store. It constructs its own upstream HTTPS requests, strips incoming headers and bodies, and refuses redirects. Its worker GitHub credential never enters Canopy. A private HTTP forge source with another origin, path or credential name is rejected.
 
 Habitat currently returns at most 50 item-history changes. When that history is full or unavailable, or other needed evidence is incomplete, **first-delivery latency stays unknown**. The UI separately labels the interval to the earliest **observed** qualifying merge; it does not promote that observation to proven lifetime first delivery. Previously observed PR references and successful source responses remain in the same volatile refresh snapshot, not a new persisted ledger. A restart cannot recover PR references no longer exposed by Habitat.
 
@@ -208,7 +199,7 @@ Run spanning that merge makes the allocation unknown; Canopy never prorates it.
 
 Instead of `host`, an instance can set `observer_url` to the full private `/v1/forest/observe` endpoint and `observer_token_env` to `FOREST_OBSERVATION_TOKEN`. Keep `root` and `forest` set to the worker's actual paths, for example `/data/vector` and `/data/vector/.iron-forest/bin/forest`. HTTP observation is allowed only on loopback, `.internal` hosts, or private RFC1918/ULA addresses. Other remote sources require HTTPS except the exact observer-bound forge proxy described above. Redirects never receive credentials.
 
-The adapter sends `POST` with Bearer authentication and `{"args":[...]}` and consumes `{"stdout":"...","stderr":"...","exit_code":0}`. The ops-owned observer must allow only `version`, `config show`, `declaration list/show`, `status`, `run list --limit 1000 [--after ID]`, and `run logs ID`, with `--json --root <configured-root>`. This read-query POST does not create a Canopy mutation route.
+The adapter sends `POST` with Bearer authentication and `{"args":[...]}` and consumes `{"stdout":"...","stderr":"...","exit_code":0}`. The ops-owned observer must allow only `version`, `config show`, `declaration list/show`, `status`, `run list --limit 1000 [--after ID]`, `run logs ID`, and `review list`, with `--json --root <configured-root>`. This read-query POST does not create a Canopy mutation route.
 
 After ops supplies the named read credentials and writes the generated inventory:
 
@@ -217,7 +208,7 @@ go build -o canopy .
 ./canopy -config canopy.json -listen 127.0.0.1:8080
 ```
 
-For the browser acceptance journey, inspect complete work, verified work awaiting merge, changes requested, a merged item awaiting reconciliation, an incomplete review, active work and a zero-Run item. Search and combine categories, recover from no matches, follow a deep link and use Back/Forward. Leave disclosures open, type with a selected search range, and scroll/select a long receipt across consecutive refreshes. A new reviewed revision must start the receipt at the top; changed text must not inherit an old selection. Open the instance switcher during overlapping fleet/work refreshes, and verify that independent viewers retain their own instance context.
+For the browser acceptance journey, inspect complete work, verified work awaiting merge, changes requested, a merged item awaiting reconciliation, an incomplete review, active work and a zero-Run item. Search and combine categories, recover from no matches, follow a deep link and use Back/Forward. Leave disclosures open, type with a selected search range, and scroll/select long review evidence across consecutive refreshes. A new reviewed revision must start the review at the top; changed text must not inherit an old selection. Open the instance switcher during overlapping fleet/work refreshes, and verify that independent viewers retain their own instance context.
 
 At mobile width, primary work content must be readable without horizontal scrolling; diagnostic tables retain their own scroll regions. Exercise keyboard focus, the dedicated evidence view, retained and evicted logs, and navigation back to work. A failed source keeps last-good evidence visibly stale; no first observation remains unknown, and an empty inventory is distinct from a filter with no matches. Use isolated synthetic observations for these states; this exercise does not authorize tracker mutations or new paid work.
 
