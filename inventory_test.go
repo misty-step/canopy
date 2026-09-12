@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,12 +83,12 @@ func TestPrivateForgeProxyCannotEscapeTheObservationCapability(t *testing.T) {
 	}
 }
 
-func TestConfiguredWorkInventoryAndReceiptAuthorityStayBoundedIdentifiers(t *testing.T) {
+func TestConfiguredWorkInventoryStaysBounded(t *testing.T) {
 	path := writeInventoryFixture(t, `{
 		"instances": [{"id": "vector", "label": "Vector", "root": "/data/vector", "forest": "/data/vector/.iron-forest/bin/forest",
 			"sources": {
 				"habitat": {"endpoint": "https://habitat.example", "token_env": "HABITAT_READ", "system": "https://habitat.example", "work_item_ids": ["ticket-a", "ticket-c"]},
-				"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ", "web_url": "https://github.com", "automation_login": "forest-automation"}
+				"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ", "web_url": "https://github.com"}
 			}}]
 	}`)
 	inventory, err := LoadInventory(path)
@@ -97,69 +96,19 @@ func TestConfiguredWorkInventoryAndReceiptAuthorityStayBoundedIdentifiers(t *tes
 		t.Fatalf("explicit bounded inventory rejected: %v", err)
 	}
 	source := inventory.Instances[0].Sources
-	if len(source.Habitat.WorkItemIDs) != 2 || source.Forge.AutomationLogin != "forest-automation" {
-		t.Fatalf("configured inventory or receipt authority was dropped: %+v", source)
+	if len(source.Habitat.WorkItemIDs) != 2 {
+		t.Fatalf("configured work inventory was dropped: %+v", source)
 	}
 	for _, sources := range []string{
 		`{"habitat": {"endpoint": "https://habitat.example", "token_env": "HABITAT_READ", "system": "https://habitat.example", "work_item_ids": ["../../etc/passwd"]}}`,
 		`{"habitat": {"endpoint": "https://habitat.example", "token_env": "HABITAT_READ", "system": "https://habitat.example", "work_item_ids": ["ticket-a", "ticket-a"]}}`,
-		`{"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ", "web_url": "https://github.com", "automation_login": "forest automation"}}`,
+		`{"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ", "web_url": "https://github.com", "automation_login": "retired"}}`,
+		`{"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ", "web_url": "https://github.com", "candidates": []}}`,
 	} {
 		unsafe := writeInventoryFixture(t, `{"instances": [{"id": "vector", "label": "Vector", "root": "/data/vector", "forest": "/usr/bin/forest", "sources": `+sources+`}]}`)
 		if _, err := LoadInventory(unsafe); err == nil {
 			t.Fatalf("unsafe or ambiguous configured identity accepted: %s", sources)
 		}
-	}
-}
-
-func TestLoadInventoryGitHubAutomationLogin(t *testing.T) {
-	for _, test := range []struct {
-		name  string
-		login string
-		valid bool
-	}{
-		{"unconfigured", "", true},
-		{"user", "Forest-Automation", true},
-		{"app bot", "iron-forest[bot]", true},
-		{"existing safe login", "forest_automation", true},
-		{"app slug without user signup restrictions", strings.Repeat("forest-", 8) + "-app[bot]", true},
-		{"empty bot name", "[bot]", false},
-		{"malformed suffix", "forest[Bot]", false},
-		{"repeated suffix", "forest[bot][bot]", false},
-		{"suffix not terminal", "forest[bot]extra", false},
-		{"empty identifier", "..[bot]", false},
-		{"path", "../forest[bot]", false},
-		{"backslash", `forest\bot[bot]`, false},
-		{"query", "forest?admin[bot]", false},
-		{"shell", "forest;echo[bot]", false},
-		{"whitespace", "forest bot[bot]", false},
-		{"control", "forest\n[bot]", false},
-		{"nul", "forest\x00[bot]", false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			login, err := json.Marshal(test.login)
-			if err != nil {
-				t.Fatal(err)
-			}
-			path := writeInventoryFixture(t, `{
-				"instances": [{"id": "seedbed", "label": "Seedbed", "root": "/data/seedbed", "forest": "/usr/bin/forest",
-					"sources": {"forge": {"endpoint": "https://api.github.com", "token_env": "FORGE_READ",
-						"web_url": "https://github.com", "automation_login": `+string(login)+`}}}]
-			}`)
-			inventory, err := LoadInventory(path)
-			if !test.valid {
-				if err == nil {
-					t.Fatalf("unsafe or malformed automation login %q accepted", test.login)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("valid automation login %q rejected: %v", test.login, err)
-			}
-			if got := inventory.Instances[0].Sources.Forge.AutomationLogin; got != test.login {
-				t.Fatalf("automation identity changed: got %q, want %q", got, test.login)
-			}
-		})
 	}
 }
 

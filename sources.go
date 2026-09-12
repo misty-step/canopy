@@ -33,8 +33,7 @@ type HabitatSource struct {
 
 type ForgeSource struct {
 	ReadSource
-	WebURL          string `json:"web_url"`
-	AutomationLogin string `json:"automation_login,omitempty"`
+	WebURL string `json:"web_url"`
 }
 
 type TicketSources struct {
@@ -103,16 +102,6 @@ func validateTicketSources(sources TicketSources, observerURL, observerTokenEnv 
 		web, _ := url.Parse(sources.Forge.WebURL)
 		if strings.Trim(web.Path, "/") != "" {
 			return fmt.Errorf("forge.web_url must be a web origin")
-		}
-		if sources.Forge.AutomationLogin != "" {
-			// GitHub App logins have a literal terminal [bot] suffix. Validate
-			// only a local view: keep the complete identity for receipt matching
-			// and the existing safety rules, without imposing user signup rules
-			// on App slugs. Any other brackets remain unsafe.
-			login := strings.TrimSuffix(sources.Forge.AutomationLogin, "[bot]")
-			if err := validateRouteIdentifier(login, "forge automation login"); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -287,7 +276,7 @@ func (reader sourceReader) collect(ctx context.Context, snapshot Snapshot, previ
 	}
 	result = retainDeliverySources(result, previous)
 	if config.Forge != nil {
-		result.Forge = reader.forge(ctx, *config.Forge, snapshot.Config, result.Habitat, previous.Forge)
+		result.Forge = reader.forge(ctx, *config.Forge, snapshot.Config, snapshot.Reviews, result.Habitat, previous.Forge)
 	}
 	return retainDeliverySources(result, previous)
 }
@@ -457,9 +446,51 @@ func forgePullPath(source ForgeSource, repo, prURL string) (string, bool) {
 	return "/repos/" + repo + "/pulls/" + strconv.Itoa(number), true
 }
 
-func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config ConfigData, habitat HabitatObservation, previous ForgeObservation) ForgeObservation {
+func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config ConfigData, reviews ReviewObservation, habitat HabitatObservation, previous ForgeObservation) ForgeObservation {
 	result := ForgeObservation{Pulls: make(map[string]PullEvidence)}
 	urls := make(map[string]bool)
+	for page := 1; page <= 1000; page++ {
+		var pulls []struct {
+			URL  string `json:"html_url"`
+			Head struct {
+				SHA string `json:"sha"`
+				Ref string `json:"ref"`
+			} `json:"head"`
+		}
+		endpoint := strings.TrimRight(source.Endpoint, "/") + "/repos/" + config.Repo + "/pulls?state=open&per_page=100&page=" + strconv.Itoa(page)
+		if err := reader.read(ctx, http.MethodGet, endpoint, source.TokenEnv, "Authorization", nil, &pulls); err != nil {
+			result.Error = "Open PR discovery failed: " + err.Error()
+			return result
+		}
+		if pulls == nil {
+			result.Error = "Open PR collection is missing"
+			return result
+		}
+		for _, pull := range pulls {
+			for _, candidate := range reviews.Reviews {
+				if candidate.Work == nil || candidate.RequestState != "readable" {
+					continue
+				}
+				if pull.Head.SHA == candidate.Revision {
+					urls[pull.URL] = true
+					break
+				}
+				if pull.Head.Ref == strings.TrimPrefix(candidate.Branch, "refs/heads/") {
+					if _, valid := forgePullPath(source, config.Repo, pull.URL); valid {
+						result.Pulls[pull.URL] = PullEvidence{SourceObservation: SourceObservation{ObservedAt: time.Now().UTC()},
+							URL: pull.URL, State: "open", HeadSHA: pull.Head.SHA, HeadRef: pull.Head.Ref}
+					}
+				}
+			}
+		}
+		if len(pulls) < 100 {
+			break
+		}
+		if page == 1000 {
+			result.Error = "Open PR discovery exceeds the observation limit"
+			return result
+		}
+	}
 	for _, item := range habitat.Items {
 		for _, prURL := range item.PRURLs {
 			urls[prURL] = true
@@ -467,10 +498,6 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 		if item.PRURL != "" {
 			urls[item.PRURL] = true
 		}
-	}
-	if len(urls) == 0 {
-		result.Error = "No exact PR links available to query; merge evidence is unknown"
-		return result
 	}
 	ordered := make([]string, 0, len(urls))
 	for prURL := range urls {
@@ -493,6 +520,7 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 			HTMLURL  string     `json:"html_url"`
 			Head     struct {
 				SHA string `json:"sha"`
+				Ref string `json:"ref"`
 			} `json:"head"`
 			Base struct {
 				Ref  string `json:"ref"`
@@ -516,6 +544,7 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 			evidence.State = response.State
 			evidence.BaseRef = response.Base.Ref
 			evidence.HeadSHA = response.Head.SHA
+			evidence.HeadRef = response.Head.Ref
 			evidence.Merged = *response.Merged
 			evidence.MergedAt = response.MergedAt
 			evidence.SHA = response.MergeSHA
@@ -533,15 +562,6 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 				evidence.Error = message
 			}
 		} else {
-			receipts, err := reader.reviewReceipts(ctx, strings.TrimRight(source.Endpoint, "/")+strings.Replace(path, "/pulls/", "/issues/", 1)+"/comments", source.TokenEnv)
-			if err != nil {
-				evidence.ReviewSource = previous.Pulls[prURL].ReviewSource
-				evidence.ReviewReceipts = previous.Pulls[prURL].ReviewReceipts
-				evidence.ReviewSource.Error = "Verifier receipt observation failed: " + err.Error()
-			} else {
-				evidence.ReviewSource.ObservedAt = time.Now().UTC()
-				evidence.ReviewReceipts = receipts
-			}
 			approvals, err := reader.forgeApprovals(ctx, endpoint, source.TokenEnv, evidence.HeadSHA, evidence.MergedAt)
 			if err != nil {
 				evidence.ApprovalSource = previous.Pulls[prURL].ApprovalSource
@@ -556,75 +576,49 @@ func (reader sourceReader) forge(ctx context.Context, source ForgeSource, config
 		result.Pulls[prURL] = evidence
 	}
 	for _, pull := range result.Pulls {
-		if pull.Error != "" || pull.ReviewSource.Error != "" || pull.ApprovalSource.Error != "" {
+		if pull.Error != "" || pull.ApprovalSource.Error != "" {
 			result.Error = "Some PR or review observations are unavailable; inspect ticket warnings"
 			break
 		}
 	}
+	result.Primary = make(map[string]PrimaryEvidence)
+	for _, candidate := range reviews.Reviews {
+		if config.Primary == "" || candidate.Work == nil || candidate.RequestState != "readable" || !revisionSHA.MatchString(candidate.Revision) {
+			continue
+		}
+		matched := false
+		for _, pull := range result.Pulls {
+			if pull.HeadSHA == candidate.Revision {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		var comparison struct {
+			Status string `json:"status"`
+			Base   struct {
+				SHA string `json:"sha"`
+			} `json:"base_commit"`
+			MergeBase struct {
+				SHA string `json:"sha"`
+			} `json:"merge_base_commit"`
+		}
+		observation := PrimaryEvidence{}
+		endpoint := strings.TrimRight(source.Endpoint, "/") + "/repos/" + config.Repo + "/compare/" + candidate.Revision + "..." + url.PathEscape(strings.TrimPrefix(config.Primary, "refs/heads/"))
+		if err := reader.read(ctx, http.MethodGet, endpoint, source.TokenEnv, "Authorization", nil, &comparison); err != nil {
+			observation.Error = "Primary ancestry observation failed: " + err.Error()
+		} else if comparison.Base.SHA != candidate.Revision || comparison.Status == "" {
+			observation.Error = "Primary ancestry evidence is missing or mismatched"
+		} else {
+			observation.ObservedAt = time.Now().UTC()
+			observation.Contained = (comparison.Status == "ahead" || comparison.Status == "identical") && comparison.MergeBase.SHA == candidate.Revision
+		}
+		result.Primary[candidate.Revision] = observation
+	}
 	result.ObservedAt = time.Now().UTC()
 	return result
-}
-
-func (reader sourceReader) reviewReceipts(ctx context.Context, endpoint, tokenEnv string) ([]ReviewReceipt, error) {
-	receipts := make([]ReviewReceipt, 0)
-	seen := make(map[int64]bool)
-	for page := 1; ; page++ {
-		var comments []struct {
-			ID          int64     `json:"id"`
-			Body        string    `json:"body"`
-			URL         string    `json:"html_url"`
-			CreatedAt   time.Time `json:"created_at"`
-			UpdatedAt   time.Time `json:"updated_at"`
-			Association string    `json:"author_association"`
-			User        struct {
-				ID    int64  `json:"id"`
-				Login string `json:"login"`
-				Type  string `json:"type"`
-			} `json:"user"`
-		}
-		if err := reader.read(ctx, http.MethodGet, endpoint+"?per_page=100&page="+strconv.Itoa(page), tokenEnv, "Authorization", nil, &comments); err != nil {
-			return nil, err
-		}
-		if comments == nil {
-			return nil, fmt.Errorf("forge comment collection is missing")
-		}
-		for _, comment := range comments {
-			// The private proxy preserves {} placeholders for unrelated comments
-			// so filtering never shortens an upstream page or hides later receipts.
-			if !strings.Contains(comment.Body, "forest.review.v1") {
-				continue
-			}
-			if comment.ID > 0 && seen[comment.ID] {
-				return nil, fmt.Errorf("forge returned duplicate receipt comment identity")
-			}
-			seen[comment.ID] = true
-			receipt := ReviewReceipt{ID: comment.ID, URL: comment.URL, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt,
-				Author: comment.User.Login, AuthorID: comment.User.ID, AuthorType: comment.User.Type, Association: comment.Association}
-			var payload struct {
-				Schema   string `json:"schema"`
-				RunID    string `json:"run_id"`
-				WorkID   string `json:"work_id"`
-				Revision string `json:"revision"`
-				Decision string `json:"decision"`
-				Summary  string `json:"summary"`
-			}
-			body, marked := strings.CutPrefix(strings.TrimSpace(comment.Body), "<!-- forest.review.v1 -->\n")
-			decoder := json.NewDecoder(strings.NewReader(body))
-			decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&payload); !marked || err != nil || decoder.Decode(new(any)) != io.EOF ||
-				payload.Schema != "forest.review.v1" || strings.TrimSpace(payload.RunID) == "" || strings.TrimSpace(payload.WorkID) == "" ||
-				!revisionSHA.MatchString(payload.Revision) || (payload.Decision != "approve" && payload.Decision != "changes") || strings.TrimSpace(payload.Summary) == "" {
-				receipt.ValidationWarning = "Malformed forest.review.v1 receipt"
-			} else {
-				receipt.Schema, receipt.RunID, receipt.WorkID = payload.Schema, payload.RunID, payload.WorkID
-				receipt.Revision, receipt.Decision, receipt.Summary = payload.Revision, payload.Decision, payload.Summary
-			}
-			receipts = append(receipts, receipt)
-		}
-		if len(comments) < 100 {
-			return receipts, nil
-		}
-	}
 }
 
 var revisionSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)

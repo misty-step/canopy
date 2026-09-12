@@ -27,7 +27,7 @@ func commandRoute(args []string) string {
 	if len(args) >= 3 && (args[0] == "declaration" && args[1] == "show" || args[0] == "run" && args[1] == "logs") {
 		return args[0] + " " + args[1] + ":" + args[2]
 	}
-	if len(args) >= 2 && (args[0] == "config" || args[0] == "declaration" || args[0] == "run") {
+	if len(args) >= 2 && (args[0] == "config" || args[0] == "declaration" || args[0] == "run" || args[0] == "review") {
 		return args[0] + " " + args[1]
 	}
 	if len(args) > 0 {
