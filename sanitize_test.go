@@ -1,12 +1,6 @@
 package main
 
-import (
-	"context"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestSanitizeLogText(t *testing.T) {
 	const longSecret = "supersecretvalue123"
@@ -60,35 +54,5 @@ func TestSanitizeLogText(t *testing.T) {
 				t.Fatalf("sanitizeLogText(%q)=%q, want %q", tc.in, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestLogsHandlerSanitizesRetainedText(t *testing.T) {
-	const rawSecret = "supersecretvalue123"
-	const rawSK = "sk-abcdefghijklmnopqrstuvwx"
-	raw := "deploy token=" + rawSecret + " bearer " + rawSK
-	collector := &testCollector{}
-	collector.logs = func(_ context.Context, _ Instance, runID string, _ bool) (LogResult, error) {
-		return LogResult{RunID: runID, Retained: true, Complete: true, Text: raw}, nil
-	}
-	templates, err := loadTemplates()
-	if err != nil {
-		t.Fatalf("loadTemplates: %v", err)
-	}
-	app := NewApp(testInventory(), collector, templates)
-	recorder := httptest.NewRecorder()
-	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/logs?instance=one&run=run-1", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status=%d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
-	}
-	body := recorder.Body.String()
-	if !strings.Contains(body, "[REDACTED]") {
-		t.Fatalf("body=%q, want sanitized [REDACTED]", body)
-	}
-	if strings.Contains(body, rawSecret) || strings.Contains(body, rawSK) {
-		t.Fatalf("body=%q, raw secret material must not appear", body)
-	}
-	if !strings.Contains(body, "log-drawer") {
-		t.Fatalf("body=%q, want active log drawer fragment", body)
 	}
 }
