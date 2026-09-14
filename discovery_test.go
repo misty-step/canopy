@@ -156,19 +156,16 @@ func TestResolveDiscoveryCollisionsRetainsCollidingSiblings(t *testing.T) {
 func TestScanDevelopmentRootCollidingCheckoutsResolveToDistinctIDs(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	parent := t.TempDir()
-	factory := filepath.Join(parent, "iron-forest")
-	if err := os.MkdirAll(factory, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(factory, "forest"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	for _, name := range []string{"agent_test", "agent-test"} {
 		repo := filepath.Join(parent, name)
-		if err := os.MkdirAll(repo, 0o755); err != nil {
+		profile := filepath.Join(repo, ".iron-forest")
+		if err := os.MkdirAll(filepath.Join(profile, "bin"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(repo, "forest.yaml"), []byte("repo: misty-step/"+name+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(profile, "config.yaml"), []byte("repo: misty-step/"+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(profile, "bin", "forest"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
